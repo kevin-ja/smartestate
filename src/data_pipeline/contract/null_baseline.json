@@ -1,0 +1,26 @@
+{
+  "9": {
+    "area_sqm": 0.0,
+    "maintenance_cost": 0.099,
+    "charging_ports": 0.22,
+    "building_status": 0.416,
+    "natural_light": 0.474,
+    "floor_material": 0.494
+  },
+  "11": {
+    "area_sqm": 0.001,
+    "maintenance_cost": 0.07,
+    "building_status": 0.386,
+    "security_type": 0.397,
+    "number_of_elevators": 0.413
+  },
+  "13": {
+    "area_sqm": 0.0,
+    "parking_spaces": 0.005,
+    "maintenance_cost": 0.151,
+    "building_status": 0.349
+  },
+  "15": {
+    "area_sqm": 0.0
+  }
+}

@@ -1,0 +1,30 @@
+# Entorno virtual
+ss/
+
+# Datos del challenge: la ingesta los lee de S3, no del repo
+data/
+
+# Terraform: estado y variables pueden tener datos sensibles
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Sistema y herramientas locales
+.DS_Store
+.claude/
+CLAUDE.md
+
+# Archivo vacío creado por error
+infra/--query
+
+# Bitácora interna: no se versiona
+HANDOFF.md
+
+# Configuración local: los valores reales viven aquí (plantilla en .env.example)
+.env

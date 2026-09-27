@@ -1,0 +1,8 @@
+# El estado puede contener valores sensibles: nunca se versiona.
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# .terraform.lock.hcl SÍ se versiona: fija la versión del provider.
+crash.log
+*.tfvars.local

@@ -1,0 +1,78 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Identidad",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "s3:ListAllMyBuckets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BucketDelLake",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::smartestate-lake-*"
+    },
+    {
+      "Sid": "ObjetosDelLake",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::smartestate-lake-*/*"
+    },
+    {
+      "Sid": "BucketRaizDatabricks",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::smartestate-dbx-root-*",
+        "arn:aws:s3:::smartestate-dbx-root-*/*"
+      ]
+    },
+    {
+      "Sid": "RolesYPoliticasDelProyecto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::ACCOUNT_ID:role/smartestate-*"
+      ]
+    },
+    {
+      "Sid": "PoliticasGestionadasDelProyecto",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:DeletePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::ACCOUNT_ID:policy/smartestate-*"
+      ]
+    }
+  ]
+}
