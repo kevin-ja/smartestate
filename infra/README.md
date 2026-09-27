@@ -97,6 +97,7 @@ subshell `( … )` para que no queden exportados en la terminal.
 ```bash
 # Arrancar
 cd infra && (set -a; . ../.env; set +a; AWS_PROFILE=smartestate terraform apply)   # ~3 min. La URL del workspace cambia
+bash uc/sync-workspace-id.sh                            # el estado de uc/ guarda el id del workspace anterior
 cd uc && terraform apply                               # reaplica grants: el grupo engineers es nuevo
 
 # Cerrar
