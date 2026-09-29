@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
+from src.common import logs
 from src.data_pipeline.contract.rules import (
     JOIN_MIN_MATCH,
     KEY_COLUMN,
@@ -39,6 +40,7 @@ from src.data_pipeline.contract.schema import (
     SPOTS_FIELDS,
     Field,
 )
+from src.data_pipeline.storage import store
 
 logger = logging.getLogger(__name__)
 
@@ -217,21 +219,6 @@ def validate(df: DataFrame) -> tuple[DataFrame, DataFrame, list[str]]:
 
 
 # --------------------------------------------------------------------------
-# 6 · Storage
-# --------------------------------------------------------------------------
-
-
-def store(df: DataFrame, table: str) -> None:
-    """Full overwrite of a managed Delta table: idempotent and atomic."""
-    (
-        df.write.format("delta")
-        .mode("overwrite")
-        .option("overwriteSchema", True)  # the contract in code is the source of truth
-        .saveAsTable(table)
-    )
-
-
-# --------------------------------------------------------------------------
 # Pipeline
 # --------------------------------------------------------------------------
 
@@ -273,7 +260,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--quarantine-table", required=True)
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logs.configure()
     spark = SparkSession.builder.getOrCreate()
     result = run(spark, args.raw_root, args.ingest_date, args.bronze_table, args.quarantine_table)
 

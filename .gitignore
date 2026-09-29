@@ -28,3 +28,15 @@ HANDOFF.md
 
 # Configuración local: los valores reales viven aquí (plantilla en .env.example)
 .env
+
+# Pasos locales de limpieza del workspace: no se versiona
+/clean-up.md
+
+# Catálogos de referencia (copia local de ref/ del bucket, D9): no se versionan
+/ref/
+
+# Script local para levantar el workspace: no se versiona
+/start_up.sh
+
+# Script local para apagar el workspace: no se versiona
+/shut_down.sh

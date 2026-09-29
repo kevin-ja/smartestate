@@ -21,7 +21,20 @@ set -a; . "$repo/.env"; set +a
 export DATABRICKS_CONFIG_PROFILE=smartestate-dev
 export DATABRICKS_HOST="$SMARTESTATE_WORKSPACE_HOST"
 export BUNDLE_VAR_raw_root="$SMARTESTATE_RAW_ROOT"
+export BUNDLE_VAR_ref_root="$SMARTESTATE_REF_ROOT"
 export BUNDLE_VAR_jobs_sp_id="$SMARTESTATE_JOBS_SP_ID"
+
+# La caché local (.databricks/bundle/) guarda IDs de jobs y policies del workspace donde se
+# desplegó, pero no su host. Cada sesión recrea el workspace: con IDs viejos el deploy falla con
+# 403 PERMISSION_DENIED. Se anota el host y, si cambió, se borra la caché antes de correr.
+cache_dir="$bundle_dir/.databricks/bundle"
+host_marker="$bundle_dir/.databricks/workspace_host"
+if [[ -d "$cache_dir" && "$(cat "$host_marker" 2>/dev/null)" != "$DATABRICKS_HOST" ]]; then
+  rm -rf "$cache_dir"
+  echo "Caché del bundle borrada: era de otro workspace." >&2
+fi
+mkdir -p "$bundle_dir/.databricks"
+echo "$DATABRICKS_HOST" > "$host_marker"
 
 cd "$bundle_dir"
 exec databricks bundle "$@"

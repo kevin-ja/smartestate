@@ -1,4 +1,5 @@
-# data_pipeline/ — `smartestate_data`
+
+# 1. Ingesta
 
 Convierte los CSV de origen en una tabla de negocio: `raw → bronze → silver → gold`.
 Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md` §3.
@@ -9,11 +10,13 @@ Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md
 | 2 · Limpieza | `cleaning.py` | `bronze` | `silver` | ⬜ |
 | 3 · Preprocesamiento | `preprocessing.py` | `silver` | `gold` | ⬜ |
 
+`storage.py` es el único que escribe en las capas: cada etapa lo importa, ninguna importa a otra.
+
 `contract/` guarda el contrato de datos:
 
 | Archivo | Contenido |
 |---|---|
-| `schema.py` | Header esperado de cada CSV, y nombre final, tipo y formato de cada columna |
+| `schema.py` | Header esperado de cada CSV, nombre final, tipo y formato de cada columna, y schema de `bronze` y `silver` |
 | `rules.py` | Reglas de validación: clave, cuarentena, umbrales de aviso |
 | `null_baseline.json` | D8: tasa de nulos esperada por `sector × columna`, calculada sobre `data/` |
 
@@ -28,6 +31,8 @@ bash scripts/bundle.sh data deploy -t dev
 bash scripts/bundle.sh data run ingestion -t dev --params ingest_date=2026-09-26
 ```
 
+- El job corre la ingesta y luego la limpieza (task `cleaning`). Solo la limpieza:
+  `bash scripts/bundle.sh data run ingestion -t dev --only cleaning`.
 - Corre como el SP `smartestate-jobs`, en un job cluster con la policy `smartestate-jobs`.
 - `ingest_date` toma por defecto la fecha del run; `--params` la fija para reprocesar.
 - `scripts/bundle.sh` carga `.env` solo para ese proceso y fija el perfil `smartestate-dev`: sin él,
@@ -154,3 +159,49 @@ Ambas Delta managed de Unity Catalog. `raw/` nunca se toca.
 - **`overwrite` completo** en cada corrida: idempotente y atómico (una corrida fallida no deja la
   tabla a medias).
 - Los nombres de tabla entran **por parámetro**, igual que la fecha.
+
+---
+
+# 2. Limpieza
+
+* Corrige valores de `bronze` y aplica reglas de negocio.
+*  **No borra filas**: marca.
+
+```
+Load → Sector → Candidates → State → Outliers → Validation → Storage
+```
+
+| # | Paso | Columna | Acción | Por qué |
+|---|---|---|---|---|
+| 0 | **Load** | todas | Lee `bronze.spots`; si el schema no es el contrato de bronze, **aborta** | No limpiar algo que no se conoce |
+| 1 | **Sector** | `sector_id` | `13 → 12` (Retail); guarda `sector_id_original` | D1: supuesto no confirmado, reversible |
+| 2 | **Candidates** | `type_id` | `is_candidate = False` si es `Complex` | D2: fuera del caso de uso |
+| 3 | **State** | `state` | Solo llena vacíos con el catálogo INEGI (ver abajo). Marca `state_mismatch` | Monitoreo de calidad y deriva; no entra al modelo |
+| 4 | **Outliers** | `rent_price_sqm`, `sale_price_sqm` | IQR sobre log, k=1.5, por sector × intención → `is_price_outlier` | Un outlier distorsiona `f(r)` |
+| 4 | **Outliers** | `area_sqm` | Mismo criterio, por sector → `is_area_outlier` | Insumo del vector tabular |
+| 5 | **Validation** | — | **Aborta** si filas silver ≠ bronze o sector ∉ {9, 11, 12, 15}. **Aviso** si queda `state` nulo | La limpieza no pierde ni inventa filas |
+| 6 | **Storage** | — | `smartestate.silver.spots`, Delta managed, `overwrite` | Idempotente, igual que bronze |
+
+Todo outlier también pone `is_candidate = False`. Los límites se calculan **solo con candidatos** y
+se aplican a todas las filas: los Complex (edificios completos) estiran el rango hasta que no se marca
+nada (Office: 2–918.617 m² con todo, 11–4.207 m² solo candidatos). Un grupo con menos de 20
+candidatos no se marca (D11).
+
+### State con INEGI
+
+Catálogo: `ref/inegi/municipalities.csv` (API INEGI, 32 estados, 2.478 municipios). Misma ruta en el
+repo (copia local, no se versiona) y en el bucket, que es de donde lo lee el job (D9).
+
+1. **Nombre único en el catálogo** → estado directo.
+2. **Nombre ambiguo** (18 municipios, p. ej. Benito Juárez) → estado del centroide más cercano entre
+   los `(municipio, estado)` observados con estado válido. Lineal: 2–3 candidatos por fila.
+3. **Sin resolver** → `null` + aviso (hoy 3 filas).
+4. **Alias:** `Solidaridad → Playa del Carmen` (renombrado; el catálogo ya no lo trae).
+
+**`state` declarado nunca se sobrescribe.** En los 7 casos donde municipio y estado no cuadran, la
+coordenada coincide con el estado: el error está en el municipio. Se marcan `state_mismatch = True`.
+
+### Qué no hace
+
+No imputa nulos estructurales, no filtra sin descripción (D3), no parsea `security_type` ni
+normaliza `floor_material` o texto (Etapa 3).

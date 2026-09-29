@@ -1,5 +1,6 @@
 # Etapa 0 · Ingesta: raw/ingest_date=<fecha>/ -> smartestate.bronze.spots (+ cuarentena).
-# Disparo manual por ahora; el schedule llega con la limpieza.
+# Etapa 2 · Limpieza: bronze.spots -> smartestate.silver.spots. Corre después de la ingesta, en el
+# mismo job cluster (no paga otro arranque). Disparo manual por ahora.
 
 resources:
   jobs:
@@ -33,3 +34,17 @@ resources:
               - ${var.catalog}.bronze.spots
               - --quarantine-table
               - ${var.catalog}.bronze.spots_quarantine
+
+        - task_key: cleaning
+          depends_on:
+            - task_key: ingestion
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/data_pipeline/jobs/run_cleaning.py
+            parameters:
+              - --bronze-table
+              - ${var.catalog}.bronze.spots
+              - --silver-table
+              - ${var.catalog}.silver.spots
+              - --ref-root
+              - ${var.ref_root}

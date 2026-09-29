@@ -61,7 +61,7 @@ renta, atributos que no aplican al sector). No se imputan y **no cuentan como er
 | `Spot Latitude` | `lat` | ❌ No | 0% nulos, 0% fuera de México. El redondeo a 2 decimales es irreversible → restricción de Etapa 5 |
 | `Spot Longitude` | `lon` | ❌ No | Ídem |
 | `Spot Municipality` | `municipio` | ❌ No | 0% nulos. Solo texto de salida de la API |
-| `Spot State` | `estado` | ✅ **Sí** | Completar 923 vacíos y corregir 6 municipios con estado erróneo, vía catálogo INEGI (CSV estático) |
+| `Spot State` | `estado` | ✅ **Sí** | Completar 923 vacíos vía catálogo INEGI (CSV estático). El estado que no cuadra con el municipio se marca, no se corrige (D12) |
 | `Spot Settlement` | `colonia` | ⛔ Descartar | 48.7% nulos |
 | `Spot Corridor` | `corredor` | ⛔ Descartar | 31.0% nulos; inferible desde `lat`/`lon` solo al 87% (<90% exigido) |
 
@@ -106,8 +106,8 @@ distinto por sector (Industrial 6 · Office 5 · sector 13: 4 · Land 1), y eso 
 | `Spot Price Total Mxn Sale` | `venta_total` | ❌ No | Identidad coherente al 100%. Ídem |
 | `Spot Maintenance Cost Mxn ($)` | `mantenimiento` | ❌ No | Entra al vector tabular, sin hallazgo de calidad |
 
-Criterio de recorte por decidir: **IQR sobre log** por partición, **tope duro de mercado** por
-sector/modalidad, o **winsorización** (p1–p99). El EDA solo los cuantifica (2.4%–12.5% por partición).
+Criterio decidido (D11, 2026-09-28): **IQR sobre log**, k=1,5, por partición. No se recorta: se marca y la
+fila deja de ser candidata. El EDA los cuantifica en 2.4%–12.5% por partición.
 
 ### 3C · Diversidad (clones)
 
@@ -125,7 +125,7 @@ sector/modalidad, o **winsorización** (p1–p99). El EDA solo los cuantifica (2
 |---|---|---|
 | 1 | `sector_id` | Mapear `13 → 12` |
 | 2 | `tipo_id` | Derivar `es_candidato` |
-| 3 | `estado` | Completar/corregir con INEGI |
+| 3 | `estado` | Completar con INEGI; marcar el que no cuadra (D12) |
 | 4 | `area_m2` | Recortar outliers |
 | 5 | `renta_m2` | Recortar outliers por partición |
 | 6 | `venta_m2` | Recortar outliers por partición |
