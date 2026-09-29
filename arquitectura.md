@@ -55,7 +55,7 @@ DuckDB. Las capas, el contrato y la frontera online no cambian.
 ```
    ┌──────────────────────────────┐            ┌──────────────────────────────┐
    │   PIPELINE DE DATOS          │            │   PIPELINE DE ML             │
-   │   smartestate_data           │   gold/    │   smartestate_ml             │
+   │   smartestate_data           │   gold     │   smartestate_ml             │
    │                              │ ─────────▶ │                              │
    │   raw → bronze → silver →────┼── gold     │   lo lee → ml/artifacts/     │
    │                              │            │                              │
@@ -89,7 +89,7 @@ Lo que hay es esto:
 | **Corre** | Diario, siempre | Diario (`refresh`) y semanal (`retrain`) |
 | **Si falla** | El de ML no arranca | El de datos ya terminó, `gold` está intacto |
 | **Dueño** | Ingeniería de datos | Ingeniería de ML |
-| **Producto** | `gold/` — una tabla de negocio | `ml/artifacts/` — un candidato |
+| **Producto** | `gold` — una tabla de negocio | `ml/artifacts/` — un candidato |
 
 
 ## 3. Pipeline de datos
@@ -130,11 +130,12 @@ Lo que hay es esto:
               └─ recortar outliers de precio/m² y de área
                     │
                     ▼
-  PASO 4 ── gold/sector_id=*/intencion=*/base.parquet
+  PASO 4 ── smartestate.gold.spots (Delta)
             src/data_pipeline/preprocessing.py
               ├─ normalizar texto (título + descripción)
-              ├─ parsear el JSON de tipo_seguridad
-              └─ particionar por sector × intención
+              ├─ parsear el JSON de security_type
+              ├─ limpiar floor_material (sin catálogo, D18)
+              └─ dominios: valor imposible → null + aviso
 
   ════════════ AQUÍ TERMINA EL PIPELINE DE DATOS ════════════
   El producto es una tabla de negocio: legible, que cualquiera entiende al abrirla.
@@ -153,7 +154,7 @@ en **Databricks**
 | Pieza | Tecnología | Dónde corre |
 |---|---|---|
 | Transformaciones `raw → gold` | **PySpark** | Databricks|
-| Almacenamiento | **Delta** (tablas managed de Unity Catalog) en `bronze`/`silver`; `gold` a definir | **S3** |
+| Almacenamiento | **Delta** (tablas managed de Unity Catalog) en `bronze`/`silver`/`gold` | **S3** |
 | Orquestación | Databricks Workflows | Databricks |
 | Definición de jobs | **Databricks Asset Bundles** (YAML) — orquestación como código | Versionado en GitHub |
 | Despliegue y disparo | **GitHub Actions** | GitHub actions (worker nativo) |
@@ -169,7 +170,7 @@ en **Databricks**
 
 
 >
-> **S3 es el sustrato compartido.** El training en AWS lee el mismo `gold/` y escribe el mismo
+> **S3 es el sustrato compartido.** El pipeline de ML lee el mismo `gold` y escribe el mismo
 > `ml/artifacts/`. El contrato entre capas no cambia. Extiende lo que ya promete `§4` de
 > el principio de origen: *el mismo código corre en `local[*]` sin cambios*.
 
@@ -183,9 +184,9 @@ Todas las capas viven en **S3**, en el mismo bucket, con un prefijo por capa.
 | **raw** | `raw/ingest_date=YYYY-MM-DD/{data.csv, data_at.csv}` | CSV tal cual | aterrizaje, nunca se toca |
 | **bronze** | `smartestate.bronze.spots` | tabla Delta managed, 25 columnas | `src/data_pipeline/ingestion.py` |
 | **silver** | `smartestate.silver.spots` | tabla Delta managed | `src/data_pipeline/cleaning.py` |
-| **gold** | `gold/sector_id=*/intencion=*/base.parquet` | parquet particionado por sector × intención | `src/data_pipeline/preprocessing.py` |
+| **gold** | `smartestate.gold.spots` | tabla Delta managed, sin particiones (D16) | `src/data_pipeline/preprocessing.py` |
 
-- Solo `gold` está particionado. `bronze` y `silver` son tablas Delta managed: Unity Catalog decide dónde van los archivos dentro de su carpeta; se escriben con `overwrite` completo (D7, revisada 2026-09-26).
+- Ninguna capa está particionada (D16). `bronze`, `silver` y `gold` son tablas Delta managed: Unity Catalog decide dónde van los archivos dentro de su carpeta; se escriben con `overwrite` completo (D7, revisada 2026-09-26).
 - Las rutas entran **por parámetro** al módulo, nunca hardcodeadas: es lo que permite correr el mismo
   código en `local[*]` sobre la muestra.
 
@@ -195,8 +196,8 @@ Todas las capas viven en **S3**, en el mismo bucket, con un prefijo por capa.
 
 ```
 ╔═══════════════════════════════════════════════════════════════════════════════════════╗
-║  smartestate_ml · AWS Step Functions · dos cadencias (§4.2)                            ║
-║  Consume gold/ en solo lectura. Nunca escribe en las capas del pipeline de datos.      ║
+║  smartestate_ml · Databricks Workflows · dos cadencias (§4.2)                          ║
+║  Consume gold en solo lectura.  Nunca escribe en las capas del pipeline de datos.      ║
 ╚═══════════════════════════════════════════════════════════════════════════════════════╝
 
   PASO 5 ── Leer gold, pero no entero
@@ -248,39 +249,40 @@ Todas las capas viven en **S3**, en el mismo bucket, con un prefijo por capa.
 > de SBERT, hiperparámetros) se resolverá con **MLflow**, no a mano. Se decide **después** de cerrar el
 > pipeline — hoy no hay claridad suficiente sobre cómo encaja.
 
-### 4.1 Stack técnico — cerrado 2026-09-21
+### 4.1 Stack técnico — revisado 2026-09-29 (D15)
 
-**Este pipeline corre en AWS, no en Databricks** (§3.1). Deliberado: el contrato entre capas es `S3`,
-así que cada pipeline puede vivir en la plataforma que le convenga.
+**Este pipeline corre en Databricks, igual que el de datos** (D15). Reemplaza a EMR Serverless + Step
+Functions (decisión del 2026-09-21). El deployment (§6) queda abierto, probablemente en AWS.
 
 Rige una regla por encima de la tabla: **si un artefacto solo se puede cargar levantando Spark, está
 mal elegido.** El consumidor final es la API, y la API no tiene Spark (§6).
 
 | Pieza | Tecnología | Dónde corre | Se persiste como |
 |---|---|---|---|
-| Snapshot del dataset | **PySpark** | **EMR Serverless** | `parquet` en `ml/dataset/v={run_id}/` |
-| Vector tabular + escalado | **scikit-learn** (`StandardScaler` por partición) | EMR Serverless (driver) | `scaler_{part}.pkl` |
-| Embeddings de texto | **SBERT** (`sentence-transformers`) vía `pandas_udf` | EMR Serverless — inferencia paralela | `embeddings.npy` / parquet |
-| Clustering | **Spark MLlib** k-means | EMR Serverless | `centroides.npy` + columna `cluster_id` |
-| Índice espacial | **scikit-learn** BallTree (haversine), uno por partición | EMR Serverless (driver) | `balltree_{part}.pkl` |
-| Métricas offline | **pandas / numpy** | EMR Serverless (driver) | `ml/reports/v={run_id}/proxies.json` |
-| Orquestación | **Step Functions** — `ml_refresh` y `ml_retrain` (§4.2) | AWS |  |
-| Disparo | **EventBridge**: evento S3 sobre `gold/` (encadena tras el pipeline de datos) + schedule semanal | AWS |  |
-| Empaquetado | **Docker** en **ECR** — imagen con las dependencias del job | ECR |  |
-| Despliegue | **GitHub Actions** → despliega la state machine y la imagen | CI |  |
+| Snapshot del dataset | **PySpark** | **Databricks** (Jobs Compute) | `parquet` en `ml/dataset/v={run_id}/` |
+| Vector tabular + escalado | **scikit-learn** (`StandardScaler` por partición) | Databricks (driver) | `scaler_{part}.pkl` |
+| Embeddings de texto | **SBERT** (`sentence-transformers`) vía `pandas_udf` | Databricks — inferencia paralela | `embeddings.npy` / parquet |
+| Clustering | **Spark MLlib** k-means | Databricks | `centroides.npy` + columna `cluster_id` |
+| Índice espacial | **scikit-learn** BallTree (haversine), uno por partición | Databricks (driver) | `balltree_{part}.pkl` |
+| Métricas offline | **pandas / numpy** | Databricks (driver) | `ml/reports/v={run_id}/proxies.json` |
+| Orquestación | **Databricks Workflows** — `ml_refresh` y `ml_retrain` (§4.2) | Databricks |  |
+| Disparo | Tras el pipeline de datos + schedule semanal. Mecanismo exacto *pendiente* | Databricks |  |
+| Empaquetado | **Databricks Asset Bundle**, igual que el pipeline de datos | Versionado en GitHub |  |
+| Despliegue | **GitHub Actions** → despliega el bundle | CI |  |
 | Trazabilidad | **MLflow** — *pendiente*, ver nota abajo |  |  |
 
 **Por qué conviven Spark y scikit-learn.** Spark donde el trabajo es paralelo y masivo (embeddings,
 k-means sobre 10⁶ filas); scikit-learn donde el resultado tiene que poder cargarse sin Spark
 (escaladores, BallTree — MLlib ni siquiera tiene BallTree con haversine).
 
-**Cómo se encadenan los dos pipelines.** Databricks escribe `gold/` en S3 → el evento S3 dispara
-EventBridge → arranca la state machine. Ninguna plataforma llama a la otra por API: el acoplamiento
-es el bucket.
+**Cómo se encadenan los dos pipelines.** Son dos jobs de Databricks: el de ML arranca cuando el de
+datos termina de escribir `gold`. El acoplamiento sigue siendo `gold`: el de ML no importa código del
+de datos.
 
-> **MLflow sigue pendiente, y aquí cuesta más.** En Databricks venía integrado; en AWS hay que
-> elegir: servidor MLflow propio (ECS/Fargate) o **SageMaker managed MLflow**. Se decide tras cerrar
-> el pipeline, no antes.
+> **Pendiente:** dónde escribe el pipeline de ML en `ml/`. Hoy el rol del pipeline de datos recibe
+> `AccessDenied` ahí, a propósito.
+
+> **MLflow sigue pendiente.** En Databricks viene integrado. Se decide tras cerrar el pipeline, no antes.
 
 ### 4.2 Dos cadencias, no una
 
@@ -310,9 +312,9 @@ cambiado ni el inventario ni la consulta**.
 
   S3 — un bucket, un prefijo por capa
    │
-   ├─ gold/sector_id=*/intencion=*/base.parquet
+   ├─ smartestate.gold.spots (Delta)
    │        │
-   │        └──▶ pipeline de ML  (EMR Serverless · diario + semanal)
+   │        └──▶ pipeline de ML  (Databricks · diario + semanal)
    │                  │
    │                  ▼ escribe
    └─ ml/artifacts/v={run_id}/
@@ -342,7 +344,7 @@ cambiado ni el inventario ni la consulta**.
    y sincroniza a disco local                          │ spot_id
             │                                          ▼
             ▼                              ┌────────────────────────────────┐
-   /artifacts/v={run_id}/                  │ N1  filtro sector × intencion  │
+   /artifacts/v={run_id}/                  │ N1  filtro sector × intent     │
    ├─ embeddings.npy ──┐                   │       elige el shard           │
    ├─ vectores_*.npy   │                   │            ▼  ~N               │
    ├─ balltree_*.pkl   │                   │ N2  BallTree.query 5→10→15 km  │
@@ -384,8 +386,8 @@ request cruza la red para traerse ~150 KB y recién ahí empieza a calcular.
 = 3 KB por spot → **~3 GB**. BallTree, vectores tabulares, ids y `cluster_id` suman < 150 MB. A 10⁵
 son 300 MB. A la API no le entra `gold`: le entran vectores, sin texto ni direcciones.
 
-**Cuándo se rompe.** A ~10⁷–10⁸ spots (30–300 GB). Ahí se shardea por `sector_id × intencion` — el
-Nivel 1 ya filtra por ahí y `gold` está particionado igual, así que el corte sale gratis. Una vector
+**Cuándo se rompe.** A ~10⁷–10⁸ spots (30–300 GB). Ahí se shardea por `sector_id × intent` — el
+Nivel 1 ya filtra por ahí, así que el corte sale gratis. En `gold` basta *liquid clustering* por esas columnas (D16). Una vector
 database recién aparecería si hubiera que buscar por similitud sobre todo el inventario **sin** el
 filtro de sector.
 
@@ -437,7 +439,7 @@ cuando cada sector elige qué atributos suyos entran a su vector.
 | 1 | `aterrizaje_raw` | — | externo | `raw/` |
 | 2 | `ingesta` | 0 | `src/data_pipeline/ingestion.py` | `bronze/` |
 | 3 | `limpieza` | 2 | `src/data_pipeline/cleaning.py` | `silver/` |
-| 4 | `preprocesamiento` | 3 | `src/data_pipeline/preprocessing.py` | `gold/` |
+| 4 | `preprocesamiento` | 3 | `src/data_pipeline/preprocessing.py` | `gold` |
 
 **Pipeline de ML — `smartestate_ml`**
 

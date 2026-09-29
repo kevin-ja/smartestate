@@ -334,7 +334,18 @@ def main(argv: list[str] | None = None) -> None:
 
     for warning in result.warnings:
         logger.warning(warning)
-    logger.info("silver: %d rows · warnings: %d", spark.table(args.silver_table).count(), len(result.warnings))
+    # One line per run: verifies the job without a notebook and doubles as a data-quality monitor.
+    stats = spark.table(args.silver_table).agg(
+        F.count("*").alias("rows"),
+        F.sum(F.col("is_candidate").cast("int")).alias("candidates"),
+        F.sum(F.col("is_price_outlier").cast("int")).alias("price_outliers"),
+        F.sum(F.col("is_area_outlier").cast("int")).alias("area_outliers"),
+        F.sum(F.col("state_mismatch").cast("int")).alias("state_mismatch"),
+    ).first()
+    logger.info(
+        "silver: %d rows · %d candidates · %d price_outliers · %d area_outliers · %d state_mismatch · %d warnings",
+        *stats, len(result.warnings),
+    )
 
 
 if __name__ == "__main__":

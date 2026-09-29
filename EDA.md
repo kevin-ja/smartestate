@@ -77,14 +77,14 @@ consume están limpias de origen.
 | CSV crudo | Notebook | ¿Limpieza? | Nota |
 |---|---|---|---|
 | `Spot Title` | `titulo` | ❌ No | Normalización para SBERT es Etapa 3 |
-| `Spot Description` | `descripcion` | ⚠️ **Decisión pendiente** | 16.3% global, **36.1% en Industrial Rent**. Ver D3 en `HANDOFF.md` |
+| `Spot Description` | `descripcion` | ❌ No (nulo tolerado, D3) | 16.3% global, **36.1% en Industrial Rent**. Ver D3 en `HANDOFF.md` |
 
 ### 3A · Vector tabular (`data_at.csv`)
 
 | Columna | Notebook | ¿Limpieza? | Nota |
 |---|---|---|---|
 | `security_type` | `tipo_seguridad` | ❌ No | Llega como lista JSON en texto → parseo en Etapa 3 |
-| `floor_material` | `material_piso` | ❌ No | Texto libre sucio → normalización en Etapa 3 |
+| `floor_material` | `material_piso` | ❌ No | Texto libre sucio → se limpia en Etapa 3 y va al texto de SBERT (D18) |
 | `charging_ports` | `puertos_carga` | ❌ No | |
 | `number_of_elevators` | `elevadores` | ❌ No | |
 | `parking_spaces` | `estacionamientos` | ❌ No | |
@@ -132,7 +132,7 @@ fila deja de ser candidata. El EDA los cuantifica en 2.4%–12.5% por partición
 
 **Descartar — 2:** `colonia`, `corredor`.
 
-**Decisión abierta — 1:** `descripcion` (D3 en `HANDOFF.md`).
+**Nulo tolerado — 1:** `descripcion` (D3 en `HANDOFF.md`).
 
 ### Dos lecturas
 
@@ -172,7 +172,7 @@ Coincide con `arquitectura.md` Paso 2. Los 7 atributos usables son exactamente l
 | `Spot ID` | `spot_id` | Llave primaria · join |
 | `Spot Sector ID` | `sector_id` | Nivel 1 · clave de partición |
 | `Spot Type ID` | `type_id` | Nivel 1 · elegibilidad (`es_candidato`) |
-| `Spot Modality` | `modality` | Nivel 1 · clave de partición (`intencion`) |
+| `Spot Modality` | `modality` | Nivel 1 · clave de partición (`intent`) |
 | `Spot Latitude` | `latitude` | Nivel 2 · BallTree |
 | `Spot Longitude` | `longitude` | Nivel 2 · BallTree |
 | `Spot Municipality` | `municipality` | Diagnóstico y monitoreo |
@@ -203,7 +203,7 @@ ningún sector.
 
 | Sector | Dim | Columnas |
 |---|---|---|
-| 9 · Industrial | 6 | `area_sqm` `maintenance_cost` `charging_ports` `building_status` `natural_light` `floor_material` |
+| 9 · Industrial | 6 → 5 | `area_sqm` `maintenance_cost` `charging_ports` `building_status` `natural_light` · ~~`floor_material`~~ pasa a SBERT (D18) |
 | 11 · Office | 5 | `area_sqm` `maintenance_cost` `building_status` `security_type` `number_of_elevators` |
 | 13 · Retail | 4 | `area_sqm` `parking_spaces` `maintenance_cost` `building_status` |
 | 15 · Land | 1 | `area_sqm` — sin vector tabular; su `sim` usa solo NLP |

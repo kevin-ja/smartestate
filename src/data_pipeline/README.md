@@ -187,6 +187,10 @@ se aplican a todas las filas: los Complex (edificios completos) estiran el rango
 nada (Office: 2–918.617 m² con todo, 11–4.207 m² solo candidatos). Un grupo con menos de 20
 candidatos no se marca (D11).
 
+**Resumen en el log.** Cada corrida termina con una línea:
+`silver: N rows · candidates · price_outliers · area_outliers · state_mismatch · warnings`.
+Verifica el job sin notebook y sirve de monitoreo de calidad.
+
 ### State con INEGI
 
 Catálogo: `ref/inegi/municipalities.csv` (API INEGI, 32 estados, 2.478 municipios). Misma ruta en el
@@ -205,3 +209,51 @@ coordenada coincide con el estado: el error está en el municipio. Se marcan `st
 
 No imputa nulos estructurales, no filtra sin descripción (D3), no parsea `security_type` ni
 normaliza `floor_material` o texto (Etapa 3).
+
+---
+
+# 3. Preprocesamiento
+
+* Convierte `silver` en una **tabla de negocio legible, sin nada que dependa de un modelo**.
+* **No borra filas:** `gold` tiene las mismas filas que `silver`.
+* No escala ni genera embeddings: eso lo hace el pipeline de ML (Etapa 4).
+
+```
+Load → Text → Security → Floor → Domains → Validation → Storage
+```
+
+| # | Paso | Columna | Acción | Por qué |
+|---|---|---|---|---|
+| 0 | **Load** | todas | Lee `silver.spots`. Si el schema no coincide con `SILVER_SCHEMA`, **aborta** | No procesar algo que no se conoce |
+| 1 | **Text** | `title`, `description` | Quita espacios sobrantes, pasa los saltos de línea a espacio y normaliza Unicode. **No** pasa a minúsculas ni quita acentos o stopwords. Un texto vacío queda como `null`. Crea `text = title + ". " + description` (sin descripción, `text = title`) y `has_description` | SBERT necesita texto natural. `has_description` permite medir aparte los inmuebles sin descripción (D3) |
+| 2 | **Security** | `security_type` | Pasa el JSON en texto a una lista de enteros, ordenada y sin repetidos. Acepta los dos formatos que llegan: `[1, 2]` y `["1", "2"]`. Si un valor no se puede leer, **aborta** | Nunca se convierte a `null` en silencio |
+| 3 | **Floor** | `floor_material` | La misma limpieza que el paso 1 (espacios, saltos de línea, Unicode; vacío → `null`). **Sin catálogo** | Es texto libre (84 variantes); lo interpreta SBERT en la Etapa 4 (D18) |
+| 4 | **Domains** | `building_status`, `natural_light` | Un valor fuera de dominio pasa a `null` y deja un **aviso** con el conteo. Dominios: `building_status` ∈ {1, 2, 3}; `natural_light` entre 1 y 100 (porcentaje, `metadatos.pdf`). Los nulos de origen no avisan | Un valor imposible distorsiona el escalado y la similitud de todo el sector. La fila no se borra |
+| 5 | **Validation** | — | **Aborta** si `gold` no cumple `GOLD_SCHEMA` o si el número de filas ≠ el de `silver` | Esta etapa no pierde ni inventa filas |
+| 6 | **Storage** | — | Escribe `smartestate.gold.spots`: Delta managed, **sin particiones**, `overwrite` completo | Igual que `bronze` y `silver`. Es idempotente |
+
+### Contrato (`contract/`)
+
+| Archivo | Qué se agrega |
+|---|---|
+| `schema.py` | `GOLD_SCHEMA` |
+| `rules.py` | `GOLD_DOMAINS`: columna → condición SQL de valor válido (paso 4). Una regla nueva es una línea, no código |
+
+### Decisiones cerradas
+
+| # | Decisión |
+|---|---|
+| 1 | El pipeline de ML también corre en **Databricks**. El deployment queda abierto, probablemente en AWS |
+| 2 | `gold` es una tabla **Delta managed** (D7 cerrada) |
+| 3 | **Sin particiones.** `Rent & Sale` sigue como una sola fila y se filtra con `in` al consultar. Si algún día hace falta, se agrega *liquid clustering* |
+| 4 | Los no candidatos **entran** a `gold` con `is_candidate`; el pipeline de ML los filtra |
+| 5 | La intención se llama `intent` donde se use |
+| 6 | Las URLs y los teléfonos de `description` no se tratan en v1 |
+| 7 | `floor_material` no se clasifica en `gold`: se limpia y el pipeline de ML lo agrega al texto de SBERT (D18) |
+
+**Resumen en el log.** Igual que en `silver`, cada corrida termina con una línea:
+`gold: N rows · with_description · building_status_nulled · natural_light_nulled · warnings`.
+
+### Qué no hace
+
+No hace escalado, embeddings, vectores por sector ni `cluster_id`. Tampoco imputa nulos estructurales ni vuelve a revisar outliers.
