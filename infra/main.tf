@@ -120,8 +120,11 @@ module "dbx_identities" {
 # Identidad que EJECUTA el pipeline (run_as de los jobs). Sin depends_on a nivel módulo: así solo
 # su asignación al workspace entra en el destroy de cada sesión; SP y grupo persisten.
 module "dbx_pipeline_identity" {
-  source    = "./modules/dbx_pipeline_identity"
-  providers = { databricks = databricks.account }
+  source = "./modules/dbx_pipeline_identity"
+  providers = {
+    databricks           = databricks.account
+    databricks.workspace = databricks.workspace
+  }
 
   project                    = var.project
   databricks_account_id      = var.databricks_account_id

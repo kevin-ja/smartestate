@@ -5,7 +5,7 @@ Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md
 
 | Etapa | Módulo | Lee | Escribe | Estado |
 |---|---|---|---|---|
-| 0 · Ingesta | `ingestion.py` | `raw/` | `bronze` | 🟡 escrito, sin correr en Databricks |
+| 0 · Ingesta | `ingestion.py` | `raw/` | `bronze` | ✅ corrida 2026-09-26; job en el bundle |
 | 2 · Limpieza | `cleaning.py` | `bronze` | `silver` | ⬜ |
 | 3 · Preprocesamiento | `preprocessing.py` | `silver` | `gold` | ⬜ |
 
@@ -17,7 +17,23 @@ Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md
 | `rules.py` | Reglas de validación: clave, cuarentena, umbrales de aviso |
 | `null_baseline.json` | D8: tasa de nulos esperada por `sector × columna`, calculada sobre `data/` |
 
-**Correr la ingesta** (desde un notebook en la Git folder):
+**Correr la ingesta como job** (Asset Bundle en `bundles/data/`):
+
+```bash
+# Una vez por workspace nuevo: actualizar SMARTESTATE_WORKSPACE_HOST en .env y loguearse
+databricks auth login --host <SMARTESTATE_WORKSPACE_HOST> --profile smartestate-dev
+
+bash scripts/bundle.sh data validate
+bash scripts/bundle.sh data deploy -t dev
+bash scripts/bundle.sh data run ingestion -t dev --params ingest_date=2026-09-26
+```
+
+- Corre como el SP `smartestate-jobs`, en un job cluster con la policy `smartestate-jobs`.
+- `ingest_date` toma por defecto la fecha del run; `--params` la fija para reprocesar.
+- `scripts/bundle.sh` carga `.env` solo para ese proceso y fija el perfil `smartestate-dev`: sin él,
+  el CLI usaría el `default_profile`, que es el SP de IaC (admin de cuenta).
+
+**Correr la ingesta desde un notebook** (desarrollo, en la Git folder):
 
 ```python
 from src.data_pipeline import ingestion

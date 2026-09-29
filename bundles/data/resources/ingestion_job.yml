@@ -1,0 +1,35 @@
+# Etapa 0 · Ingesta: raw/ingest_date=<fecha>/ -> smartestate.bronze.spots (+ cuarentena).
+# Disparo manual por ahora; el schedule llega con la limpieza.
+
+resources:
+  jobs:
+    ingestion:
+      name: smartestate_data-ingestion
+      max_concurrent_runs: 1
+
+      # Por defecto, la fecha del run. Para reprocesar: --params ingest_date=YYYY-MM-DD
+      parameters:
+        - name: ingest_date
+          default: "{{job.start_time.iso_date}}"
+
+      job_clusters:
+        - job_cluster_key: jobs
+          new_cluster:
+            # La policy fija nodo, versión y modo de acceso; aquí no se repite nada.
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+
+      tasks:
+        - task_key: ingestion
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/data_pipeline/jobs/run_ingestion.py
+            parameters:
+              - --ingest-date
+              - "{{job.parameters.ingest_date}}"
+              - --raw-root
+              - ${var.raw_root}
+              - --bronze-table
+              - ${var.catalog}.bronze.spots
+              - --quarantine-table
+              - ${var.catalog}.bronze.spots_quarantine

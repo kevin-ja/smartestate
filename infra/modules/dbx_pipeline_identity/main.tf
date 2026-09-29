@@ -30,6 +30,18 @@ resource "databricks_mws_permission_assignment" "pipeline" {
   permissions  = ["USER"]
 }
 
+# Igual que con engineers: estar asignado no alcanza, el SP necesita "Workspace access" para que
+# un job corra como él. Solo eso: sin SQL ni creación de clusters (los define el bundle).
+# Vive en el workspace: se recrea con él en cada sesión.
+resource "databricks_entitlements" "pipeline" {
+  provider = databricks.workspace
+
+  group_id         = databricks_group.pipeline.id
+  workspace_access = true
+
+  depends_on = [databricks_mws_permission_assignment.pipeline]
+}
+
 # Quién puede usar el SP como run_as. El rule set es AUTORITATIVO: reemplaza al que Databricks
 # crea por defecto, así que se repite el manager (el SP de IaC) para no perder el control del SP.
 data "databricks_service_principal" "iac" {

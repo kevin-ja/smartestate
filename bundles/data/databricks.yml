@@ -1,0 +1,58 @@
+# Asset Bundle del pipeline de datos (smartestate_data). Un bundle por pipeline (decisión A1):
+# el de ML vivirá en bundles/ml/ y se despliega por separado.
+#
+# Sin valores de cuenta: el host, el raw_root y el SP salen de .env. Correr siempre con
+# scripts/bundle.sh, que los carga solo para ese proceso (ver README de data_pipeline).
+# Los dos targets corren como el SP smartestate-jobs; solo dev se despliega durante el trial.
+
+bundle:
+  name: smartestate_data
+
+include:
+  - resources/*.yml
+
+# El código vive en src/, fuera del bundle. "." hace que la raíz de sync sea la del repo, así el
+# workspace conserva la forma src/... que esperan los imports. Solo sube lo que este pipeline usa.
+sync:
+  paths:
+    - .
+    - ../../src
+  # Relativos a esta carpeta, no a la raíz del repo.
+  exclude:
+    - ../../src/ml_pipeline/**
+    - ../../src/analysis/**
+    - ../../src/**/*.md
+
+variables:
+  raw_root:
+    description: s3://<bucket>/raw. Viene de SMARTESTATE_RAW_ROOT (.env).
+  jobs_sp_id:
+    description: application_id del SP smartestate-jobs. Viene de SMARTESTATE_JOBS_SP_ID (.env).
+  jobs_policy_id:
+    description: Policy de los job clusters. Cambia con cada workspace, así que se busca por nombre.
+    lookup:
+      cluster_policy: smartestate-jobs
+  catalog:
+    description: Catálogo de Unity Catalog.
+    default: smartestate
+
+run_as:
+  service_principal_name: ${var.jobs_sp_id}
+
+# El CLI los aplica a la carpeta del bundle y al job. El SP corre el código desde esa carpeta
+# (en dev, el home de quien despliega): sin CAN_VIEW no puede leerlo. Engineers despliega.
+permissions:
+  - level: CAN_MANAGE
+    group_name: smartestate-engineers
+  - level: CAN_VIEW
+    group_name: smartestate-pipeline
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}

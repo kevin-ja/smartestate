@@ -6,7 +6,7 @@
 #   - dev:  cluster interactivo para desarrollar (engineers). Auto-termination fija.
 #   - jobs: cluster efímero de un job (pipeline). Nace y muere con cada corrida.
 #
-# Las dos son un solo nodo, instancia chica y spot con respaldo on-demand: el dataset son dos CSV.
+# Las dos son un solo nodo e instancia chica: el dataset son dos CSV. dev es spot; jobs, on-demand.
 # Si algún día hace falta escalar, se cambia la policy de jobs, no el código.
 # Viven en el workspace: se destruyen y recrean con él en cada sesión (no guardan estado).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,9 +26,6 @@ locals {
     "spark_conf.spark.master"                     = { type = "fixed", value = "local[*]" }
     "custom_tags.ResourceClass"                   = { type = "fixed", value = "SingleNode" }
     "custom_tags.Project"                         = { type = "fixed", value = var.project }
-    # Un solo nodo: first_on_demand = 0 deja que el driver (el único nodo) sea spot.
-    "aws_attributes.availability"    = { type = "fixed", value = "SPOT_WITH_FALLBACK" }
-    "aws_attributes.first_on_demand" = { type = "fixed", value = 0 }
     # Dedicado (single user): el modo que Unity Catalog exige para leer raw/ como archivos.
     "data_security_mode" = { type = "fixed", value = "SINGLE_USER" }
     "instance_pool_id"   = { type = "forbidden", hidden = true }
@@ -44,6 +41,9 @@ resource "databricks_cluster_policy" "dev" {
     "cluster_type"            = { type = "fixed", value = "all-purpose" }
     "autotermination_minutes" = { type = "fixed", value = var.autotermination_minutes }
     "custom_tags.Uso"         = { type = "fixed", value = "dev" }
+    # Spot: si AWS reclama el nodo, se reinicia el cluster y listo.
+    "aws_attributes.availability"    = { type = "fixed", value = "SPOT_WITH_FALLBACK" }
+    "aws_attributes.first_on_demand" = { type = "fixed", value = 0 }
   }))
 }
 
@@ -54,6 +54,10 @@ resource "databricks_cluster_policy" "jobs" {
   definition = jsonencode(merge(local.common, {
     "cluster_type"    = { type = "fixed", value = "job" }
     "custom_tags.Uso" = { type = "fixed", value = "jobs" }
+    # On-demand: el único nodo es el driver, y si AWS lo reclama se pierde la corrida entera
+    # (pasó el 2026-09-28). Cuesta centavos más por corrida.
+    "aws_attributes.availability"    = { type = "fixed", value = "ON_DEMAND" }
+    "aws_attributes.first_on_demand" = { type = "fixed", value = 1 }
   }))
 }
 

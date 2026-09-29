@@ -18,6 +18,14 @@ locals {
   # jobs (pipeline). Grupos separados: un permiso extra para explorar no llega al pipeline.
   groups = [local.infra.databricks_engineers_group, local.infra.databricks_pipeline_group]
 
+  # En las capas de tablas, el pipeline además tiene MANAGE: reemplaza tablas (overwriteSchema)
+  # aunque las haya creado otra identidad. Engineers no: desarrolla, no administra las capas.
+  schema_privileges = ["USE_SCHEMA", "SELECT", "MODIFY", "CREATE_TABLE"]
+  schema_grants = {
+    (local.infra.databricks_engineers_group) = local.schema_privileges
+    (local.infra.databricks_pipeline_group)  = concat(local.schema_privileges, ["MANAGE"])
+  }
+
   layers = merge(
     { for l in var.read_layers : l => { read_only = true } },
     { for l in var.table_layers : l => { read_only = false } },
@@ -80,10 +88,10 @@ resource "databricks_grants" "schema" {
   schema = each.value.id
 
   dynamic "grant" {
-    for_each = local.groups
+    for_each = local.schema_grants
     content {
-      principal  = grant.value
-      privileges = ["USE_SCHEMA", "SELECT", "MODIFY", "CREATE_TABLE"]
+      principal  = grant.key
+      privileges = grant.value
     }
   }
 }

@@ -2,7 +2,7 @@
 ss/
 
 # Datos del challenge: la ingesta los lee de S3, no del repo
-data/
+/data/
 
 # Terraform: estado y variables pueden tener datos sensibles
 *.tfstate
