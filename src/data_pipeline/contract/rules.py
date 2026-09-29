@@ -1,8 +1,8 @@
 """
-Validation rules for bronze (src/data_pipeline/README.md, section 5).
+Validation rules for bronze (src/data_pipeline/README.md, section 5) and gold (section 3).
 
-Rules are data: a new rule is a new entry here, not new code in ingestion.py.
-Quarantine conditions are Spark SQL expressions over bronze column names.
+Rules are data: a new rule is a new entry here, not new code in ingestion.py or preprocessing.py.
+Conditions are Spark SQL expressions over the layer's column names.
 """
 
 from __future__ import annotations
@@ -43,3 +43,11 @@ def load_null_baseline(path: Path = _BASELINE_PATH) -> dict[int, dict[str, float
     """D8 baseline: expected null rate per sector and column. Only columns that apply to the sector."""
     raw = json.loads(path.read_text())
     return {int(sector): rates for sector, rates in raw.items()}
+
+
+# Gold domains: column -> condition a non-null value must meet. A value that fails becomes null
+# and is counted in a warning; the row stays (preprocessing, step 4).
+GOLD_DOMAINS = {
+    "building_status": "building_status IN (1, 2, 3)",
+    "natural_light": "natural_light BETWEEN 1 AND 100",  # percentage, metadatos.pdf
+}

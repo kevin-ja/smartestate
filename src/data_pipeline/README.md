@@ -7,8 +7,8 @@ Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md
 | Etapa | Módulo | Lee | Escribe | Estado |
 |---|---|---|---|---|
 | 0 · Ingesta | `ingestion.py` | `raw/` | `bronze` | ✅ corrida 2026-09-26; job en el bundle |
-| 2 · Limpieza | `cleaning.py` | `bronze` | `silver` | ⬜ |
-| 3 · Preprocesamiento | `preprocessing.py` | `silver` | `gold` | ⬜ |
+| 2 · Limpieza | `cleaning.py` | `bronze` | `silver` | ✅ corrida 2026-09-29; task del job |
+| 3 · Preprocesamiento | `preprocessing.py` | `silver` | `gold` | ✅ corrida 2026-09-29; task del job |
 
 `storage.py` es el único que escribe en las capas: cada etapa lo importa, ninguna importa a otra.
 
@@ -16,8 +16,8 @@ Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md
 
 | Archivo | Contenido |
 |---|---|
-| `schema.py` | Header esperado de cada CSV, nombre final, tipo y formato de cada columna, y schema de `bronze` y `silver` |
-| `rules.py` | Reglas de validación: clave, cuarentena, umbrales de aviso |
+| `schema.py` | Header esperado de cada CSV, nombre final, tipo y formato de cada columna, y schema de `bronze`, `silver` y `gold` |
+| `rules.py` | Reglas de validación: clave, cuarentena, umbrales de aviso, dominios de `gold` |
 | `null_baseline.json` | D8: tasa de nulos esperada por `sector × columna`, calculada sobre `data/` |
 
 **Correr la ingesta como job** (Asset Bundle en `bundles/data/`):
@@ -31,8 +31,8 @@ bash scripts/bundle.sh data deploy -t dev
 bash scripts/bundle.sh data run ingestion -t dev --params ingest_date=2026-09-26
 ```
 
-- El job corre la ingesta y luego la limpieza (task `cleaning`). Solo la limpieza:
-  `bash scripts/bundle.sh data run ingestion -t dev --only cleaning`.
+- El job corre ingesta → limpieza (task `cleaning`) → preprocesamiento (task `preprocessing`).
+  Una sola etapa: `bash scripts/bundle.sh data run ingestion -t dev --only preprocessing`.
 - Corre como el SP `smartestate-jobs`, en un job cluster con la policy `smartestate-jobs`.
 - `ingest_date` toma por defecto la fecha del run; `--params` la fija para reprocesar.
 - `scripts/bundle.sh` carga `.env` solo para ese proceso y fija el perfil `smartestate-dev`: sin él,

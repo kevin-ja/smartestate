@@ -1,6 +1,7 @@
 # Etapa 0 · Ingesta: raw/ingest_date=<fecha>/ -> smartestate.bronze.spots (+ cuarentena).
 # Etapa 2 · Limpieza: bronze.spots -> smartestate.silver.spots. Corre después de la ingesta, en el
 # mismo job cluster (no paga otro arranque). Disparo manual por ahora.
+# Etapa 3 · Preprocesamiento: silver.spots -> smartestate.gold.spots. Corre después de la limpieza.
 
 resources:
   jobs:
@@ -48,3 +49,15 @@ resources:
               - ${var.catalog}.silver.spots
               - --ref-root
               - ${var.ref_root}
+
+        - task_key: preprocessing
+          depends_on:
+            - task_key: cleaning
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/data_pipeline/jobs/run_preprocessing.py
+            parameters:
+              - --silver-table
+              - ${var.catalog}.silver.spots
+              - --gold-table
+              - ${var.catalog}.gold.spots

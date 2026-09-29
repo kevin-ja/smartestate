@@ -1,5 +1,5 @@
 """
-Schema contract for the raw CSVs and the bronze and silver tables.
+Schema contract for the raw CSVs and the bronze, silver and gold tables.
 
 Two parts per CSV:
   - RAW_*_COLUMNS: the header exactly as it arrives, in order. A different header aborts the run.
@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pyspark.sql.types import (
+    ArrayType,
     BooleanType,
     DataType,
     DateType,
@@ -99,5 +100,17 @@ SILVER_SCHEMA = StructType(
         StructField("state_mismatch", BooleanType()),
         StructField("is_price_outlier", BooleanType()),
         StructField("is_area_outlier", BooleanType()),
+    ]
+)
+
+# Gold: silver with security_type parsed to a list, plus the text for SBERT (32 columns).
+GOLD_SCHEMA = StructType(
+    [
+        StructField("security_type", ArrayType(IntegerType())) if f.name == "security_type" else f
+        for f in SILVER_SCHEMA.fields
+    ]
+    + [
+        StructField("text", StringType()),
+        StructField("has_description", BooleanType()),
     ]
 )
