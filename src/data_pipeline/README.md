@@ -2,7 +2,7 @@
 # 1. Ingesta
 
 Convierte los CSV de origen en una tabla de negocio: `raw → bronze → silver → gold`.
-Corre en Databricks; los datos viven en S3. Diseño completo en `arquitectura.md` §3.
+Corre en Databricks; los datos viven en S3. Diseño completo en `new_arch.md` §3.
 
 | Etapa | Módulo | Lee | Escribe | Estado |
 |---|---|---|---|---|
@@ -28,11 +28,11 @@ databricks auth login --host <SMARTESTATE_WORKSPACE_HOST> --profile smartestate-
 
 bash scripts/bundle.sh data validate
 bash scripts/bundle.sh data deploy -t dev
-bash scripts/bundle.sh data run ingestion -t dev --params ingest_date=2026-09-26
+bash scripts/bundle.sh data run data_pipeline -t dev --params ingest_date=2026-09-26
 ```
 
 - El job corre ingesta → limpieza (task `cleaning`) → preprocesamiento (task `preprocessing`).
-  Una sola etapa: `bash scripts/bundle.sh data run ingestion -t dev --only preprocessing`.
+  Una sola etapa: `bash scripts/bundle.sh data run data_pipeline -t dev --only preprocessing`.
 - Corre como el SP `smartestate-jobs`, en un job cluster con la policy `smartestate-jobs`.
 - `ingest_date` toma por defecto la fecha del run; `--params` la fija para reprocesar.
 - `scripts/bundle.sh` carga `.env` solo para ese proceso y fija el perfil `smartestate-dev`: sin él,

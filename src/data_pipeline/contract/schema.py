@@ -1,5 +1,6 @@
 """
-Schema contract for the raw CSVs and the bronze, silver and gold tables.
+Schema contract for the raw CSVs, the in-memory stage outputs (bronze, silver, gold) and the
+Spots FS offline table.
 
 Two parts per CSV:
   - RAW_*_COLUMNS: the header exactly as it arrives, in order. A different header aborts the run.
@@ -19,6 +20,7 @@ from pyspark.sql.types import (
     DataType,
     DateType,
     DoubleType,
+    FloatType,
     IntegerType,
     LongType,
     StringType,
@@ -114,3 +116,27 @@ GOLD_SCHEMA = StructType(
         StructField("has_description", BooleanType()),
     ]
 )
+
+# Spots FS offline (new_arch.md §3.2): one row per spot, primary key spot_id. T1 writes cluster_id as
+# null so the schema stays stable across full rewrites; T2 fills it for candidates.
+FS_OFFLINE_SCHEMA = StructType(
+    [
+        StructField("spot_id", LongType(), False),
+        StructField("sector_id", IntegerType()),
+        StructField("modality_mask", IntegerType()),
+        StructField("latitude", DoubleType()),
+        StructField("longitude", DoubleType()),
+        StructField("tab_vector", ArrayType(FloatType())),
+        StructField("nlp_vector", ArrayType(FloatType())),
+        StructField("rent_price_sqm", DoubleType()),
+        StructField("sale_price_sqm", DoubleType()),
+        StructField("is_candidate", BooleanType()),
+        StructField("cluster_id", IntegerType()),
+    ]
+)
+FS_OFFLINE_KEY = "spot_id"
+
+# tab_vector length per sector (0.9). A sector missing here (15 · Land) has a null tab_vector.
+TAB_DIMS = {9: 8, 11: 7, 12: 7}
+NLP_DIM = 768
+NORM_TOLERANCE = 1e-6

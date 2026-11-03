@@ -52,6 +52,11 @@ output "databricks_jobs_sp_application_id" {
   value       = module.dbx_pipeline_identity.application_id
 }
 
+output "dynamodb_publish_instance_profile_arn" {
+  description = "Instance profile de T3 (publish a DynamoDB). Se registra en Databricks con el workspace arriba."
+  value       = module.dynamodb_publish_profile.instance_profile_arn
+}
+
 output "databricks_jobs_policy_id" {
   description = "policy_id de los job clusters (Asset Bundles). Cambia en cada recreación del workspace."
   value       = module.dbx_compute_policies.jobs_policy_id

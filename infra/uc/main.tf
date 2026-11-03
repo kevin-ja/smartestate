@@ -5,8 +5,8 @@
 # schemas → grants al grupo. Una External Location por capa y no una sobre todo el bucket: el
 # rol solo lista sus propios prefijos, y así cada capa tiene su propio control.
 #
-# Permisos del grupo: los mismos que el rol IAM. Lee raw/ y ref/ como archivos; lee y escribe
-# tablas en bronze, silver y gold. ml/ no aparece (arquitectura.md §2).
+# Permisos del grupo: los mismos que el rol IAM. Lee raw/, ref/ y models/ como archivos; lee y escribe
+# archivos en runs/ y tablas en feature_store_offline. ml/ no aparece: el pipeline no lo usa.
 # ─────────────────────────────────────────────────────────────────────────────
 
 locals {
@@ -28,7 +28,7 @@ locals {
 
   layers = merge(
     { for l in var.read_layers : l => { read_only = true } },
-    { for l in var.table_layers : l => { read_only = false } },
+    { for l in concat(var.file_layers, var.table_layers) : l => { read_only = false } },
   )
 }
 
@@ -48,10 +48,10 @@ resource "databricks_external_location" "layer" {
 }
 
 # El metastore no tiene storage_root (infra/modules/dbx_metastore), así que el catálogo necesita
-# uno. Se usa gold/, pero no guarda nada propio: cada schema declara su capa.
+# uno. Se usa feature_store_offline/, pero no guarda nada propio: cada schema declara su capa.
 resource "databricks_catalog" "this" {
   name         = var.catalog_name
-  storage_root = databricks_external_location.layer["gold"].url
+  storage_root = databricks_external_location.layer["feature_store_offline"].url
   comment      = "Lakehouse de SmartEstate. Un schema por capa. Gestionado por Terraform."
 
   # Sin force_destroy: borrar el catálogo con tablas adentro debe fallar, no pasar en silencio.
@@ -96,7 +96,7 @@ resource "databricks_grants" "schema" {
   }
 }
 
-# Leer los CSV de raw/ y ref/ directamente como archivos. Las capas de tablas no llevan
+# Leer raw/, ref/ y models/ (modelo SBERT) directamente como archivos. Las capas de tablas no llevan
 # grants de archivos: se accede por tabla, no por ruta.
 resource "databricks_grants" "read_location" {
   for_each = toset(var.read_layers)
@@ -108,6 +108,21 @@ resource "databricks_grants" "read_location" {
     content {
       principal  = grant.value
       privileges = ["READ_FILES"]
+    }
+  }
+}
+
+# Escribir runs/<run_id>/ (cuarentena, K-means, GeoIndex) como archivos.
+resource "databricks_grants" "write_location" {
+  for_each = toset(var.file_layers)
+
+  external_location = databricks_external_location.layer[each.key].id
+
+  dynamic "grant" {
+    for_each = local.groups
+    content {
+      principal  = grant.value
+      privileges = ["READ_FILES", "WRITE_FILES"]
     }
   }
 }

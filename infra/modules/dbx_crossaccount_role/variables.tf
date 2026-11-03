@@ -8,6 +8,12 @@ variable "databricks_account_id" {
   type        = string
 }
 
+variable "pass_role_arns" {
+  description = "Roles que Databricks puede asignar a los clusters como instance profile (iam:PassRole)."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   type    = map(string)
   default = {}

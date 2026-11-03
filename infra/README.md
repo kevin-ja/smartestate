@@ -5,7 +5,7 @@ workspace **clásico** de Databricks que lo procesa. Todo en Terraform.
 
 **AWS** `<aws-account-id>` · `us-east-1` · **Databricks** workspace `smartestate` + metastore `smartestate-us-east-1`
 
-ML, deployment y CI/CD no están aquí todavía (diseño en `arquitectura.md`).
+ML, deployment y CI/CD no están aquí todavía (diseño en `new_arch.md`).
 
 ---
 

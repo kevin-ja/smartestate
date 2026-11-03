@@ -1,34 +1,20 @@
 """
-Stage 2 · Cleaning: smartestate.bronze.spots -> smartestate.silver.spots.
+Stage 2 · Cleaning: bronze -> silver (both in memory).
 
-    Load -> Sector -> Candidates -> State -> Outliers -> Validation -> Storage
+    Schema -> Sector -> Candidates -> State -> Outliers -> Validation
 
 Design in src/data_pipeline/README.md. Corrects values and applies business rules; never drops a
 row, it flags. Functions take and return Spark DataFrames, do not print and do not mutate their
-input; only `load`/`read_catalog` read and only `store` writes.
-
-Run:
-    python -m src.data_pipeline.cleaning \
-        --bronze-table smartestate.bronze.spots \
-        --silver-table smartestate.silver.spots \
-        --ref-root "$SMARTESTATE_REF_ROOT"
+input; only `read_catalog` reads.
 """
 
 from __future__ import annotations
-
-import argparse
-import logging
-from dataclasses import dataclass, field
 
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType
 
-from src.common import logs
 from src.data_pipeline.contract.schema import BRONZE_SCHEMA, SILVER_SCHEMA
-from src.data_pipeline.storage import store
-
-logger = logging.getLogger(__name__)
 
 # D1: the dictionary declares 12 -> Retail; the data carries 13 and no 12. Reversible through
 # sector_id_original.
@@ -64,14 +50,8 @@ class CleaningError(Exception):
     """Bronze breaks what cleaning expects, or cleaning broke the table. The run aborts."""
 
 
-@dataclass
-class CleaningResult:
-    silver: DataFrame
-    warnings: list[str] = field(default_factory=list)
-
-
 # --------------------------------------------------------------------------
-# 0 · Load
+# 0 · Schema
 # --------------------------------------------------------------------------
 
 
@@ -81,12 +61,6 @@ def check_schema(df: DataFrame, contract: StructType, layer: str) -> None:
     actual = [(f.name, f.dataType) for f in df.schema.fields]
     if actual != expected:
         raise CleaningError(f"{layer} does not match its contract. Expected {expected}, got {actual}")
-
-
-def load(spark: SparkSession, table: str) -> DataFrame:
-    df = spark.table(table)
-    check_schema(df, BRONZE_SCHEMA, "Bronze")
-    return df
 
 
 def read_catalog(spark: SparkSession, ref_root: str) -> DataFrame:
@@ -305,48 +279,9 @@ def validate(silver: DataFrame, bronze_rows: int) -> list[str]:
 
 
 def transform(bronze: DataFrame, catalog: DataFrame) -> DataFrame:
-    """Sector -> Candidates -> State -> Outliers, with no I/O."""
+    """Schema -> Sector -> Candidates -> State -> Outliers, with no I/O."""
+    check_schema(bronze, BRONZE_SCHEMA, "Bronze")
     df = recode_sector(bronze)
     df = flag_candidates(df)
     df = fill_state(df, catalog)
     return flag_outliers(df)
-
-
-def run(spark: SparkSession, bronze_table: str, silver_table: str, ref_root: str) -> CleaningResult:
-    """Reads bronze and the catalog, cleans, validates and writes silver. Nothing is written on abort."""
-    bronze = load(spark, bronze_table)
-    silver = transform(bronze, read_catalog(spark, ref_root))
-    warnings = validate(silver, bronze.count())
-    store(silver, silver_table)
-    return CleaningResult(silver, warnings)
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Stage 2 · bronze -> silver")
-    parser.add_argument("--bronze-table", required=True)
-    parser.add_argument("--silver-table", required=True)
-    parser.add_argument("--ref-root", required=True, help="e.g. s3://<bucket>/ref")
-    args = parser.parse_args(argv)
-
-    logs.configure()
-    spark = SparkSession.builder.getOrCreate()
-    result = run(spark, args.bronze_table, args.silver_table, args.ref_root)
-
-    for warning in result.warnings:
-        logger.warning(warning)
-    # One line per run: verifies the job without a notebook and doubles as a data-quality monitor.
-    stats = spark.table(args.silver_table).agg(
-        F.count("*").alias("rows"),
-        F.sum(F.col("is_candidate").cast("int")).alias("candidates"),
-        F.sum(F.col("is_price_outlier").cast("int")).alias("price_outliers"),
-        F.sum(F.col("is_area_outlier").cast("int")).alias("area_outliers"),
-        F.sum(F.col("state_mismatch").cast("int")).alias("state_mismatch"),
-    ).first()
-    logger.info(
-        "silver: %d rows · %d candidates · %d price_outliers · %d area_outliers · %d state_mismatch · %d warnings",
-        *stats, len(result.warnings),
-    )
-
-
-if __name__ == "__main__":
-    main()

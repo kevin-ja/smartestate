@@ -1,0 +1,73 @@
+# T1 · data_pipeline: raw/ingest_date=<fecha>/ -> smartestate.feature_store_offline.spots_fs_offline,
+# en una sola task y sin tablas intermedias (new_arch.md §3.1). Cuarentena en runs/<run_id>/.
+# unit_tests corre antes, en el mismo job cluster: mientras no haya CI, es donde corren los tests
+# de Spark (plan, Fase 2). T2 y T3 se agregan en la Fase 5. Disparo manual por ahora.
+
+resources:
+  experiments:
+    train:
+      # En dev, el modo development le antepone "[dev <usuario>]" al nombre.
+      name: /Shared/smartestate-train
+      permissions:
+        # El SP de los jobs registra corridas: necesita editar, no solo ver.
+        - level: CAN_EDIT
+          group_name: smartestate-pipeline
+
+  jobs:
+    data_pipeline:
+      name: smartestate_train
+      max_concurrent_runs: 1
+
+      # Por defecto, la fecha del run. Para reprocesar: --params ingest_date=YYYY-MM-DD
+      parameters:
+        - name: ingest_date
+          default: "{{job.start_time.iso_date}}"
+
+      job_clusters:
+        - job_cluster_key: jobs
+          new_cluster:
+            # La policy fija nodo, versión y modo de acceso; aquí no se repite nada.
+            policy_id: ${var.jobs_policy_id}
+            apply_policy_default_values: true
+
+      tasks:
+        - task_key: unit_tests
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/data_pipeline/jobs/run_tests.py
+          libraries: &libraries
+            # torch CPU: la rueda de PyPI trae CUDA (~2 GB) que un nodo sin GPU no usa.
+            - pypi:
+                package: torch==2.14.1
+                repo: https://download.pytorch.org/whl/cpu
+            - pypi:
+                package: sentence-transformers==6.1.0
+            - pypi:
+                package: mlflow==3.17.2
+            - pypi:
+                package: pytest==9.1.1
+
+        - task_key: data_pipeline
+          depends_on:
+            - task_key: unit_tests
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/data_pipeline/jobs/run_data_pipeline.py
+            parameters:
+              - --run-id
+              - "{{job.run_id}}"
+              - --ingest-date
+              - "{{job.parameters.ingest_date}}"
+              - --raw-root
+              - ${var.raw_root}
+              - --ref-root
+              - ${var.ref_root}
+              - --runs-root
+              - ${var.runs_root}
+              - --sbert-uri
+              - ${var.models_root}/sbert/paraphrase-multilingual-mpnet-base-v2.tar.gz
+              - --fs-table
+              - ${var.catalog}.feature_store_offline.spots_fs_offline
+              - --experiment
+              - ${resources.experiments.train.name}
+          libraries: *libraries

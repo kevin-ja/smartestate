@@ -1,4 +1,4 @@
-# Asset Bundle del pipeline de datos (smartestate_data). Un bundle por pipeline (decisión A1):
+# Asset Bundle del pipeline de entrenamiento (job smartestate_train). Un bundle por pipeline (decisión A1):
 # el de ML vivirá en bundles/ml/ y se despliega por separado.
 #
 # Sin valores de cuenta: el host, raw_root, ref_root y el SP salen de .env. Correr siempre con
@@ -17,7 +17,9 @@ sync:
   paths:
     - .
     - ../../src
-  # Relativos a esta carpeta, no a la raíz del repo.
+    - ../../tests
+  # Relativos a esta carpeta, no a la raíz del repo. La CLI (v1.17) avisa "does not match any
+  # files", pero excluyen bien: verificado con `bundle sync --dry-run` (2026-09-29).
   exclude:
     - ../../src/ml_pipeline/**
     - ../../src/analysis/**
@@ -28,6 +30,10 @@ variables:
     description: s3://<bucket>/raw. Viene de SMARTESTATE_RAW_ROOT (.env).
   ref_root:
     description: s3://<bucket>/ref, catálogos de referencia (D9). Viene de SMARTESTATE_REF_ROOT (.env).
+  runs_root:
+    description: s3://<bucket>/runs, salidas de cada corrida. scripts/bundle.sh lo deriva de raw_root.
+  models_root:
+    description: s3://<bucket>/models, modelos preentrenados (SBERT). scripts/bundle.sh lo deriva de raw_root.
   jobs_sp_id:
     description: application_id del SP smartestate-jobs. Viene de SMARTESTATE_JOBS_SP_ID (.env).
   jobs_policy_id:

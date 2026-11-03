@@ -93,7 +93,7 @@ consume están limpias de origen.
 
 Los vacíos aquí son **estructurales**, no datos faltantes: una oficina no tiene puertos de carga, un
 terreno no tiene elevadores. **No imputar** — es regla explícita de la Etapa 2. El vector tabular es
-distinto por sector (Industrial 6 · Office 5 · sector 13: 4 · Land 1), y eso se resuelve en Etapa 4.
+distinto por sector (Industrial 6 · Office 5 · sector 13: 4 · Land 1; Industrial pasó a 5 con D18), y eso se resuelve en Etapa 4.
 
 ### 3B · Precio — `f(r)`
 
@@ -160,7 +160,7 @@ Hallazgos del EDA que **no** se traducen en limpieza de columnas:
 ## Apéndice — Proyección de columnas a `bronze`
 
 La lista cerrada que sale del EDA. **Es el contrato de `bronze`** (Etapa 0): **25 columnas, `spot_id` incluido** (18 de `data.csv` + 7 atributos de `data_at.csv`).
-Coincide con `arquitectura.md` Paso 2. Los 7 atributos usables son exactamente los de §3A.
+Coincide con el contrato en código (`src/data_pipeline/contract/schema.py`). Los 7 atributos usables son exactamente los de §3A.
 
 > **Nombres en inglés** desde 2026-09-26: son los de `bronze` (`src/data_pipeline/contract/schema.py`).
 > El resto de este documento usa el vocabulario del notebook del EDA, en español.

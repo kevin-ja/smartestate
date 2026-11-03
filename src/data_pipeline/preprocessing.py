@@ -1,35 +1,22 @@
 """
-Stage 3 · Preprocessing: smartestate.silver.spots -> smartestate.gold.spots.
+Stage 3 · Preprocessing: silver -> gold (both in memory).
 
-    Load -> Text -> Security -> Floor -> Domains -> Validation -> Storage
+    Schema -> Text -> Security -> Floor -> Domains -> Validation
 
 Design in src/data_pipeline/README.md, section 3. Gold is readable business data with nothing
-model-specific: no scaling, no embeddings. Never drops a row. Functions take and return Spark
-DataFrames, do not print and do not mutate their input; only `load` reads and only `store` writes.
-
-Run:
-    python -m src.data_pipeline.preprocessing \
-        --silver-table smartestate.silver.spots \
-        --gold-table smartestate.gold.spots
+model-specific: no scaling, no embeddings (those are feature_engineering.py). Never drops a row.
+Functions take and return Spark DataFrames, do not print, do not mutate their input and do no I/O.
 """
 
 from __future__ import annotations
 
-import argparse
-import logging
-from dataclasses import dataclass, field
-
 import pandas as pd
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StringType, StructType
 
-from src.common import logs
 from src.data_pipeline.contract.rules import GOLD_DOMAINS
 from src.data_pipeline.contract.schema import GOLD_SCHEMA, SILVER_SCHEMA
-from src.data_pipeline.storage import store
-
-logger = logging.getLogger(__name__)
 
 # Joins title and description. Without a description, text is the title alone (concat_ws skips nulls).
 TEXT_SEPARATOR = ". "
@@ -39,15 +26,8 @@ class PreprocessingError(Exception):
     """Silver breaks what preprocessing expects, or preprocessing broke the table. The run aborts."""
 
 
-@dataclass
-class PreprocessingResult:
-    gold: DataFrame
-    nulled: dict[str, int] = field(default_factory=dict)  # domain column -> values set to null
-    warnings: list[str] = field(default_factory=list)
-
-
 # --------------------------------------------------------------------------
-# 0 · Load
+# 0 · Schema
 # --------------------------------------------------------------------------
 
 
@@ -58,12 +38,6 @@ def check_schema(df: DataFrame, contract: StructType, layer: str) -> None:
     actual = [(f.name, f.dataType) for f in df.schema.fields]
     if actual != expected:
         raise PreprocessingError(f"{layer} does not match its contract. Expected {expected}, got {actual}")
-
-
-def load(spark: SparkSession, table: str) -> DataFrame:
-    df = spark.table(table)
-    check_schema(df, SILVER_SCHEMA, "Silver")
-    return df
 
 
 # --------------------------------------------------------------------------
@@ -177,46 +151,10 @@ def validate(gold: DataFrame, silver_rows: int, nulled: dict[str, int]) -> list[
 
 
 def transform(silver: DataFrame) -> tuple[DataFrame, dict[str, int]]:
-    """Text -> Security -> Floor -> Domains, with no I/O."""
+    """Schema -> Text -> Security -> Floor -> Domains, with no I/O."""
+    check_schema(silver, SILVER_SCHEMA, "Silver")
     df = clean_text(silver)
     df = parse_security(df)
     df = clean_floor(df)
     df, nulled = apply_domains(df)
     return df.select(*GOLD_SCHEMA.fieldNames()), nulled
-
-
-def run(spark: SparkSession, silver_table: str, gold_table: str) -> PreprocessingResult:
-    """Reads silver, preprocesses, validates and writes gold. Nothing is written on abort."""
-    silver = load(spark, silver_table)
-    gold, nulled = transform(silver)
-    warnings = validate(gold, silver.count(), nulled)
-    store(gold, gold_table)
-    return PreprocessingResult(gold, nulled, warnings)
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Stage 3 · silver -> gold")
-    parser.add_argument("--silver-table", required=True)
-    parser.add_argument("--gold-table", required=True)
-    args = parser.parse_args(argv)
-
-    logs.configure()
-    spark = SparkSession.builder.getOrCreate()
-    result = run(spark, args.silver_table, args.gold_table)
-
-    for warning in result.warnings:
-        logger.warning(warning)
-    # One line per run, same as silver: verifies the job without a notebook.
-    stats = spark.table(args.gold_table).agg(
-        F.count("*").alias("rows"),
-        F.sum(F.col("has_description").cast("int")).alias("with_description"),
-    ).first()
-    logger.info(
-        "gold: %d rows · %d with_description · %d building_status_nulled · %d natural_light_nulled · %d warnings",
-        stats["rows"], stats["with_description"], result.nulled["building_status"],
-        result.nulled["natural_light"], len(result.warnings),
-    )
-
-
-if __name__ == "__main__":
-    main()

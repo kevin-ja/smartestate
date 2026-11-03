@@ -5,7 +5,7 @@
 #
 # Uso:  bash scripts/bundle.sh data validate
 #       bash scripts/bundle.sh data deploy -t dev
-#       bash scripts/bundle.sh data run ingestion -t dev --params ingest_date=2026-09-26
+#       bash scripts/bundle.sh data run data_pipeline -t dev --params ingest_date=2026-09-26
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -22,6 +22,9 @@ export DATABRICKS_CONFIG_PROFILE=smartestate-dev
 export DATABRICKS_HOST="$SMARTESTATE_WORKSPACE_HOST"
 export BUNDLE_VAR_raw_root="$SMARTESTATE_RAW_ROOT"
 export BUNDLE_VAR_ref_root="$SMARTESTATE_REF_ROOT"
+# Mismo bucket que raw/: se derivan para no agregar más variables a .env.
+export BUNDLE_VAR_runs_root="${SMARTESTATE_RAW_ROOT%/raw}/runs"
+export BUNDLE_VAR_models_root="${SMARTESTATE_RAW_ROOT%/raw}/models"
 export BUNDLE_VAR_jobs_sp_id="$SMARTESTATE_JOBS_SP_ID"
 
 # La caché local (.databricks/bundle/) guarda IDs de jobs y policies del workspace donde se

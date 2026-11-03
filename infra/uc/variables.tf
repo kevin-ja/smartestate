@@ -10,13 +10,19 @@ variable "catalog_name" {
 }
 
 variable "read_layers" {
-  description = "Capas de solo lectura: se leen como archivos (CSV de origen, referencias)."
+  description = "Capas de solo lectura: se leen como archivos (CSV de origen, referencias, modelos preentrenados)."
   type        = list(string)
-  default     = ["raw", "ref"]
+  default     = ["raw", "ref", "models"]
+}
+
+variable "file_layers" {
+  description = "Capas donde el pipeline escribe archivos (no tablas): salidas de cada corrida en runs/<run_id>/."
+  type        = list(string)
+  default     = ["runs"]
 }
 
 variable "table_layers" {
   description = "Capas donde el pipeline escribe tablas. Cada una es un schema del catálogo."
   type        = list(string)
-  default     = ["bronze", "silver", "gold"]
+  default     = ["feature_store_offline"]
 }

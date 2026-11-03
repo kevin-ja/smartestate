@@ -1,5 +1,5 @@
 """
-Job entrypoint for Stage 0 · Ingestion (bundles/data/resources/ingestion_job.yml).
+Job entrypoint for T1 · data_pipeline (bundles/data/resources/data_pipeline_job.yml).
 
 A spark_python_task does not import this file: it exec()s it, so `__file__` is not defined and
 only the file's folder may be on sys.path. The bundle root is found by walking up from the
@@ -24,7 +24,7 @@ def _bundle_root() -> Path:
 
 sys.path.insert(0, str(_bundle_root()))
 
-from src.data_pipeline import ingestion  # noqa: E402
+from src.data_pipeline import pipeline  # noqa: E402
 
 if __name__ == "__main__":
-    ingestion.main()
+    pipeline.main()

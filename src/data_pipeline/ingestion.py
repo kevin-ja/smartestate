@@ -1,30 +1,19 @@
 """
-Stage 0 · Ingestion: raw CSVs -> smartestate.bronze.spots.
+Stage 0 · Ingestion: raw CSVs -> bronze (in memory) + quarantine.
 
-    Extract -> Schema -> Parsing -> Join + projection -> Validation -> Storage
+    Extract -> Schema -> Parsing -> Join + projection -> Validation
 
 Design in src/data_pipeline/README.md. Functions take and return Spark DataFrames, do not print and
-do not mutate their input; only `extract` reads and only `store` writes. Paths and table names come
-in as parameters.
-
-Run:
-    python -m src.data_pipeline.ingestion --ingest-date 2026-09-26 \
-        --raw-root "$SMARTESTATE_RAW_ROOT" \
-        --bronze-table smartestate.bronze.spots \
-        --quarantine-table smartestate.bronze.spots_quarantine
+do not mutate their input; only `extract` reads. Writing is done by pipeline.py through storage.py.
 """
 
 from __future__ import annotations
 
-import argparse
-import datetime as dt
-import logging
 from dataclasses import dataclass, field
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from src.common import logs
 from src.data_pipeline.contract.rules import (
     JOIN_MIN_MATCH,
     KEY_COLUMN,
@@ -35,14 +24,9 @@ from src.data_pipeline.contract.rules import (
 from src.data_pipeline.contract.schema import (
     ATTRIBUTES_FIELDS,
     BRONZE_SCHEMA,
-    RAW_ATTRIBUTES_COLUMNS,
-    RAW_SPOTS_COLUMNS,
     SPOTS_FIELDS,
     Field,
 )
-from src.data_pipeline.storage import store
-
-logger = logging.getLogger(__name__)
 
 # "99.20000000° W" -> (99.20000000, W). No backslashes: the pattern lives inside a SQL literal.
 _COORDINATE = "^ *([0-9]+[.]?[0-9]*) *° *([NSEWO]) *$"
@@ -230,49 +214,3 @@ def transform(spots_raw: DataFrame, attributes_raw: DataFrame) -> IngestionResul
     joined, join_warnings = join(spots, attributes)
     good, quarantined, null_warnings = validate(joined)
     return IngestionResult(good, quarantined, join_warnings + null_warnings)
-
-
-def run(
-    spark: SparkSession,
-    raw_root: str,
-    ingest_date: str,
-    bronze_table: str,
-    quarantine_table: str,
-) -> IngestionResult:
-    """Reads raw/ingest_date=<date>/, transforms and writes both tables. Nothing is written on abort."""
-    dt.date.fromisoformat(ingest_date)  # fails early on a malformed date
-    folder = f"{raw_root.rstrip('/')}/ingest_date={ingest_date}"
-
-    result = transform(
-        extract(spark, f"{folder}/data.csv", RAW_SPOTS_COLUMNS),
-        extract(spark, f"{folder}/data_at.csv", RAW_ATTRIBUTES_COLUMNS),
-    )
-    store(result.quarantine, quarantine_table)
-    store(result.bronze, bronze_table)
-    return result
-
-
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Stage 0 · raw CSVs -> bronze")
-    parser.add_argument("--ingest-date", required=True, help="raw/ folder to read, YYYY-MM-DD")
-    parser.add_argument("--raw-root", required=True, help="e.g. s3://<bucket>/raw")
-    parser.add_argument("--bronze-table", required=True)
-    parser.add_argument("--quarantine-table", required=True)
-    args = parser.parse_args(argv)
-
-    logs.configure()
-    spark = SparkSession.builder.getOrCreate()
-    result = run(spark, args.raw_root, args.ingest_date, args.bronze_table, args.quarantine_table)
-
-    for warning in result.warnings:
-        logger.warning(warning)
-    logger.info(
-        "bronze: %d rows · quarantine: %d rows · warnings: %d",
-        spark.table(args.bronze_table).count(),
-        spark.table(args.quarantine_table).count(),
-        len(result.warnings),
-    )
-
-
-if __name__ == "__main__":
-    main()

@@ -18,6 +18,8 @@ Si un usuario busca una nave industrial con "entrada para tráiler" y el sistema
 
 ## 2. Estrategia de Filtrado y Similitud (Cascada)
 
+> Aquí los niveles van en orden de negocio. Al ejecutar, primero va la zona y después el tipo y la modalidad: en `new_arch.md` §4 son el Filtro 1 (zona) y el Filtro 2 (tipo y modalidad).
+
 ### 🟢 Nivel 1: Filtro por Tipo de inmueble y Modalidad
 
 - **Lógica:** Filtro doble por tipo de inmueble **y** modalidad (renta / venta).
@@ -57,8 +59,8 @@ La pregunta ya no es "¿sirve?" sino "¿cuál se parece más?".
 - $\cos(u,v)$ — Similitud coseno entre los vectores $u$ y $v$ (no distancia: aquí más alto = más parecido).
 - $A$: Inmueble de referencia (el clickeado). Uno por consulta.
 - $B$: Inmueble candidato. Uno de los ~50 que pasaron Capa 1 y 2.
-- $A_{\mathrm{tab}}, B_{\mathrm{tab}}$ — Vectores numéricos, **uno por sector** (decidido 2026-09-15): las columnas físicas dependen del sector, no hay vector global. Industrial 6 dimensiones, Office 5, sector 13: 4. Escalados dentro del sector. Land solo tiene área (1 dimensión): no tiene vector tabular y su `sim` usa solo NLP.
-- $A_{\mathrm{nlp}}, B_{\mathrm{nlp}}$ — Vectores semánticos (384 dimensiones): título + descripción procesados mediante Sentence-BERT y L2-normalizados.  $A_{\mathrm{nlp}}, B_{\mathrm{nlp}} \in \mathbb{R}^{384}$.
+- $A_{\mathrm{tab}}, B_{\mathrm{tab}}$ — Vectores numéricos, **uno por sector** (decidido 2026-09-15): las columnas físicas dependen del sector, no hay vector global. Industrial 8 dimensiones, Office 7, Retail (sector 12; el 13 del CSV se recodifica a 12): 7. Escalados dentro del sector y L2-normalizados (detalle en `new_arch.md` §3.2.1). Land no tiene vector tabular: su `sim` usa solo NLP.
+- $A_{\mathrm{nlp}}, B_{\mathrm{nlp}}$ — Vectores semánticos (768 dimensiones): título + descripción (+ material del piso en Industrial) procesados mediante Sentence-BERT (`paraphrase-multilingual-mpnet-base-v2`) y L2-normalizados.  $A_{\mathrm{nlp}}, B_{\mathrm{nlp}} \in \mathbb{R}^{768}$. Sin descripción, el vector es nulo y los pesos se renormalizan sobre las señales que tienen los dos spots: $\mathrm{sim} = \sum w_i \cos_i / \sum w_i$ (`new_arch.md` §4).
 - $w_{\mathrm{tab}}, w_{\mathrm{nlp}}$ — Pesos de diseño, fijos e iguales para todos los candidatos. $w_{\mathrm{tab}}, w_{\mathrm{nlp}} \in [0,1].$
 - $\mathrm{sim}(A,B)$ — Parecido total entre el inmueble de referencia y el candidato. Un valor por candidato, con $\mathrm{sim}(A,B) \in [0,1]$
 
@@ -70,6 +72,8 @@ La pregunta ya no es "¿sirve?" sino "¿cuál se parece más?".
 $r = P_{m^2}(B) / P_{m^2}(A)$
 
 </aside>
+
+$P_{m^2}$ es el precio por m² de la modalidad que comparten $A$ y $B$ (renta o venta). Si los dos son *Rent & Sale*, se calcula $f$ con cada precio y se promedia: $f = (f(r_{\mathrm{renta}}) + f(r_{\mathrm{venta}}))/2$; si a alguno le falta un precio, se usa solo el que tienen los dos (P34).
 
 Donde $r$ no se usa directo: se convierte en un factor $f(r)$ por tramos.
 
@@ -90,4 +94,20 @@ $\mathrm{score}(A,B) = \mathrm{sim}(A,B) \cdot f(r)$
 
 </aside>
 
-Ordenar descendente, cortar en Top N.
+Ordenar descendente por $\mathrm{score}$.
+
+#### C) Diversidad: que el Top N no sean clones
+
+<aside>
+📐
+
+$\mathrm{score}'(B) = \mathrm{score}(A,B) \cdot \delta^{\,n_c(B)}$
+
+</aside>
+
+- $n_c(B)$ — Cuántos candidatos del mismo cluster que $B$ ya entraron al Top N. El Top N se arma de uno en uno (corte greedy).
+- $\delta$ — Castigo por repetir cluster. Valor inicial $0.85$, a calibrar: menor $\delta$, más variado.
+- El cluster de cada candidato (`cluster_id`) sale de un K-means que corre en el entrenamiento, no en el clic.
+- No toca $\mathrm{sim}$: si el clustering sale mal, el Top N queda en el orden de B).
+
+Cortar en Top N.

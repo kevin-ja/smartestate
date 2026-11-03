@@ -10,7 +10,7 @@ module "lake" {
   source = "./modules/lake"
 
   bucket_name = "${var.project}-lake-${var.account_id}"
-  layers      = ["raw", "bronze", "silver", "gold", "ref", "ml"]
+  layers      = ["raw", "ref", "ml", "models", "feature_store_offline", "runs"]
   tags        = var.tags
 }
 
@@ -26,8 +26,8 @@ module "data_pipeline_role" {
   account_id             = var.account_id
   bucket_name            = module.lake.bucket_name
   bucket_arn             = module.lake.bucket_arn
-  read_prefixes          = ["raw", "ref"]
-  read_write_prefixes    = ["bronze", "silver", "gold"]
+  read_prefixes          = ["raw", "ref", "models"]
+  read_write_prefixes    = ["feature_store_offline", "runs"]
   trusted_principal_arns = var.trusted_principal_arns
   tags                   = var.tags
 
@@ -63,7 +63,19 @@ module "dbx_crossaccount_role" {
 
   role_name             = "${var.project}-databricks-crossaccount"
   databricks_account_id = var.databricks_account_id
+  pass_role_arns        = [module.dynamodb_publish_profile.role_arn]
   tags                  = local.dbx_tags
+}
+
+# Instance profile de los clusters que materializan el feature store online (T3). Solo AWS: el registro
+# en Databricks y su habilitación en la policy de jobs van con el workspace arriba.
+module "dynamodb_publish_profile" {
+  source = "./modules/dynamodb_publish_profile"
+
+  name       = "${var.project}-dynamodb-publish"
+  account_id = var.account_id
+  region     = var.region
+  tags       = var.tags
 }
 
 module "dbx_workspace" {

@@ -13,9 +13,11 @@ data "databricks_aws_assume_role_policy" "this" {
   external_id = var.databricks_account_id
 }
 
-# Permisos: los mínimos que Databricks publica para VPC administrada por Databricks ("managed").
+# Permisos: los mínimos que Databricks publica para VPC administrada por Databricks ("managed"),
+# más iam:PassRole sobre los roles de instance profile (p. ej. el de publicar a DynamoDB).
 data "databricks_aws_crossaccount_policy" "this" {
   policy_type = "managed"
+  pass_roles  = var.pass_role_arns
 }
 
 resource "aws_iam_role" "this" {

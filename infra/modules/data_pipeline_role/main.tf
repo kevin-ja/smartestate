@@ -1,8 +1,7 @@
 # Rol que ejecuta el pipeline de datos.
 #
-# El alcance es lo importante: lee raw/ y ref/, escribe bronze/, silver/ y gold/,
-# y NO tiene acceso a ml/. Eso es lo que hace cumplir el principio de arquitectura.md §2 —
-# el pipeline de datos y el de ML nunca escriben en las capas del otro.
+# El alcance es lo importante: lee raw/, ref/ y models/, escribe feature_store_offline/ y runs/,
+# y NO tiene acceso a ml/.
 
 locals {
   # Sin principals declarados, el rol queda confiado a la propia cuenta.
