@@ -1,5 +1,4 @@
-# Asset Bundle del pipeline de entrenamiento (job smartestate_train). Un bundle por pipeline (decisión A1):
-# el de ML vivirá en bundles/ml/ y se despliega por separado.
+# Asset Bundle del pipeline de entrenamiento (job smartestate_train): T1, T2 y T3 en un solo job (new_arch.md §3.1).
 #
 # Sin valores de cuenta: el host, raw_root, ref_root y el SP salen de .env. Correr siempre con
 # scripts/bundle.sh, que los carga solo para ese proceso (ver README de data_pipeline).
@@ -18,10 +17,10 @@ sync:
     - .
     - ../../src
     - ../../tests
+    - ../../config
   # Relativos a esta carpeta, no a la raíz del repo. La CLI (v1.17) avisa "does not match any
   # files", pero excluyen bien: verificado con `bundle sync --dry-run` (2026-09-29).
   exclude:
-    - ../../src/ml_pipeline/**
     - ../../src/analysis/**
     - ../../src/**/*.md
 

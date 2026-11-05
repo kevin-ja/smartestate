@@ -16,13 +16,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Dependencias primero: esta capa queda en caché y solo se rehace si cambian las versiones.
-# numpy/pandas/pyarrow: mismas versiones que requirements.txt.
+# numpy/pandas/pyarrow/scikit-learn/joblib: mismas versiones que requirements.txt.
 RUN pip install --no-cache-dir \
     pyspark==4.1.0 \
     pytest==9.1.1 \
     numpy==2.5.3 \
     pandas==3.0.5 \
-    pyarrow==25.0.1
+    pyarrow==25.0.1 \
+    scikit-learn==1.9.1 \
+    joblib==1.6.0
 
 # Solo el código que se evalúa.
 WORKDIR /app

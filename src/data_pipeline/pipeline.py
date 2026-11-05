@@ -29,6 +29,7 @@ from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor, spark_probes
 from src.common.run_monitor import stage
+from src.common.tracking import start_run
 from src.data_pipeline import cleaning, feature_engineering, ingestion, preprocessing, storage
 from src.data_pipeline.contract.schema import RAW_ATTRIBUTES_COLUMNS, RAW_SPOTS_COLUMNS, TAB_DIMS
 
@@ -109,18 +110,9 @@ def run(spark: SparkSession, args: argparse.Namespace) -> DataPipelineResult:
     return DataPipelineResult(stats, fs_version, warnings)
 
 
-def _start_run(experiment: str, run_id: str) -> mlflow.ActiveRun:
-    """Reuses the MLflow run tagged with this run_id (repair run) or creates it."""
-    mlflow.set_experiment(experiment)
-    found = mlflow.search_runs(filter_string=f"tags.run_id = '{run_id}'", max_results=1, output_format="list")
-    if found:
-        return mlflow.start_run(run_id=found[0].info.run_id)
-    return mlflow.start_run(run_name=f"train-{run_id}", tags={"run_id": run_id})
-
-
 def _log_mlflow(models: dict, stats: dict[str, int], fs_version: int, args: argparse.Namespace) -> None:
     """FE models, counts, stage times and the Delta version used. Tags and metrics only: a repair run may overwrite them."""
-    with _start_run(args.experiment, args.run_id):
+    with start_run(args.experiment, args.run_id):
         mlflow.set_tags({"ingest_date": args.ingest_date, "fs_offline_table": args.fs_table, "fs_offline_version": fs_version})
         mlflow.log_metrics(stats)
         with stage("mlflow_log_models"):

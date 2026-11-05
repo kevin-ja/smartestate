@@ -1,0 +1,6 @@
+# Parámetros del re-ranker (new_arch.md §3.3). Se editan solo aquí, y cambiarlos exige una corrida nueva.
+# Valores iniciales, por calibrar (new_arch.md, Next steps).
+w_tab: 0.6
+w_nlp: 0.4
+f_bounds: [0.7, 1.1]
+delta: 0.85

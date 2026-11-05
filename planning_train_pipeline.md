@@ -37,7 +37,7 @@ CSV (S3) ─▶ [T1 data_pipeline] ─▶ spots_fs_offline ─▶ [T2 modeling] 
 | 0.1 | **Workspace** | El trial venció ~2026-10-07. ¿Sigue activo el workspace o hay que pasar a pago? | ✅ **Cerrada 2026-10-21 (Kevin):** la cuenta sigue activa y crea workspaces. Es **pay-as-you-go por AWS Marketplace** (plan Premium): los DBU llegan en la factura de AWS y **no** los cubren los créditos; EC2, NAT y S3 sí. Estimado para lo que queda: **~USD 3–6,5** (10 h de cluster dev ≈ 1,9; 20 corridas del job ≈ 1,0; SQL por accidente ≈ 2–3,5). Workspace del trial borrado |
 | 0.2 | **`run_id`** | ¿De dónde sale? | ✅ **Cerrada 2026-10-19 (Kevin):** el **`job.run_id` de Databricks**, pasado a las tres tasks con `{{job.run_id}}` en el bundle. Nadie lo crea ni lo pasa; un repair run conserva el mismo id. El run de MLflow lo guarda como tag y el CD lo busca por ahí |
 | 0.3 | **`champion`** | Los alias de MLflow son del **Model Registry**, no de corridas, y descartamos pyfunc | ✅ **Cerrada 2026-10-22 (Kevin):** **tag de corrida** `champion=true`, una sola corrida a la vez; el CD busca la corrida con ese tag. Rollback = mover el tag. Anotado en `new_arch.md` §4 y §5 |
-| 0.4 | **Entrada del K-means** | `new_arch.md` no fija qué vectores usa | **Un K-means por sector** sobre `[tab_vector ‖ nlp_vector]` (Land: solo `nlp_vector`) |
+| 0.4 | **Entrada del K-means** | `new_arch.md` no fija qué vectores usa | ✅ **Cerrada 2026-11-04 (Kevin):** **un K-means por sector** sobre `[tab_vector ‖ nlp_vector]` (Land: solo `nlp_vector`). Por sector, porque `tab_vector` tiene distinto largo en cada uno; juntos, porque un clon se parece en datos y en texto. **Sin descripción (Industrial 324 de 625, Office 62 de 484):** sin ceros, porque crearían un grupo artificial. El K-means entrena con los candidatos con texto, y los demás van al centroide más cercano midiendo solo `tab_vector`. MLflow registra cómo se reparten por cluster |
 | 0.5 | **Modelo SBERT** | Next steps 5 | ✅ **Cerrada 2026-10-19 (Kevin):** `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`, revisión `4328cf2`, **768 dim**, `max_seq_length` 128. BETO crudo descartado (no está entrenado para similitud). Subido a `models/sbert/paraphrase-multilingual-mpnet-base-v2.tar.gz` (solo safetensors + config; carga sin internet) |
 | 0.6 | **`StandardScaler`** | ¿sklearn (toPandas) o Spark? | ✅ **Cerrada 2026-10-20 (Kevin):** **Pipeline de `pyspark.ml` por sector**; el `.fit()` aprende media y desviación y MLflow registra el `PipelineModel` (`mlflow.spark.log_model`, uno por sector; 2026-10-21 reemplazó a `autolog`, que choca con tres fits en el mismo run). Sin `fe_scalers.json`. Descartado el `groupBy` a mano: mismos números, más código propio y un JSON escrito por nosotros |
 | 0.7 | **Reescritura del FS offline** | `write_table` de Feature Engineering hace *merge* | Verificar en dev: `overwrite` conservando la PK `spot_id` |
@@ -90,6 +90,8 @@ Sin tablas intermedias (`new_arch.md` §3.1): **una sola task** que encadena las
 ---
 
 ## Fase 3 · Modeling pipeline (T2)
+
+**Estado (2026-11-04):** código y tests escritos; sin correr en Databricks. Falta el "Hecho cuando", que se verifica en la corrida del job.
 
 | Paso | Qué | Archivos |
 |---|---|---|

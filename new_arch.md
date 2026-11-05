@@ -129,7 +129,7 @@ CSV (S3) ──▶ ingesta ──▶ limpieza ──▶ preprocesamiento ──�
 | Subpipeline | Etapas | Sale |
 |---|---|---|
 | **Data pipeline** | Ingesta, limpieza y preprocesamiento (los tres flujos que ya existen) + feature engineering (nuevo, incluye embeddings del texto con **SBERT**, el embedder puede cambiar, y los encodings como `modality_mask`) | Spots FS offline (`spots_fs_offline`), reescrita completa con `cluster_id` nulo, y los artefactos del feature engineering |
-| **Modeling pipeline** | Modelado: lee Spots FS offline, entrena el K-means y construye el GeoIndex **solo con candidatos** (`is_candidate = True`). Predice el `cluster_id` de los candidatos en memoria y, al final, si todo salió bien, lo agrega a Spots FS offline (nulo para los no candidatos) | K-means, GeoIndex y `cluster_id` en Spots FS offline |
+| **Modeling pipeline** | Modelado: lee Spots FS offline, entrena un K-means por sector sobre `tab_vector ‖ nlp_vector` (Land: solo `nlp_vector`), con los candidatos que tienen texto; los que no tienen van al centroide más cercano midiendo solo `tab_vector`. Construye el GeoIndex **solo con candidatos** (`is_candidate = True`). Predice el `cluster_id` de los candidatos en memoria y, al final, si todo salió bien, lo agrega a Spots FS offline (nulo para los no candidatos) | K-means, GeoIndex y `cluster_id` en Spots FS offline |
 
 **Job en Databricks:** un solo job, `smartestate_train`, con tasks en secuencia. Cada una corre
 solo si la anterior terminó bien.

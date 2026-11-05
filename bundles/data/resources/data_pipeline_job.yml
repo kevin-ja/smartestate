@@ -1,7 +1,7 @@
 # T1 · data_pipeline: raw/ingest_date=<fecha>/ -> smartestate.feature_store_offline.spots_fs_offline,
 # en una sola task y sin tablas intermedias (new_arch.md §3.1). Cuarentena en runs/<run_id>/.
 # unit_tests corre antes, en el mismo job cluster: mientras no haya CI, es donde corren los tests
-# de Spark (plan, Fase 2). T2 y T3 se agregan en la Fase 5. Disparo manual por ahora.
+# de Spark (plan, Fase 2). T2 · modeling corre después de T1; T3 se agrega en la Fase 5. Disparo manual por ahora.
 
 resources:
   experiments:
@@ -49,6 +49,12 @@ resources:
                 package: mlflow==3.17.2
             - pypi:
                 package: pytest==9.1.1
+            - pypi:
+                package: scikit-learn==1.9.1
+            - pypi:
+                package: joblib==1.6.0
+            - pypi:
+                package: pyyaml==6.0.3
 
         - task_key: data_pipeline
           depends_on:
@@ -75,4 +81,21 @@ resources:
               - ${resources.experiments.train.name}
               - --spark-probes
               - "{{job.parameters.spark_probes}}"
+          libraries: *libraries
+
+        - task_key: modeling
+          depends_on:
+            - task_key: data_pipeline
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/ml_pipeline/jobs/run_modeling.py
+            parameters:
+              - --run-id
+              - "{{job.run_id}}"
+              - --runs-root
+              - ${var.runs_root}
+              - --fs-table
+              - ${var.catalog}.feature_store_offline.spots_fs_offline
+              - --experiment
+              - ${resources.experiments.train.name}
           libraries: *libraries

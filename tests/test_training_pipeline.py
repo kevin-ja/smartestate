@@ -5,8 +5,8 @@ Unit tests of the training job (smartestate_train), one section per task:
     T2 · modeling        GeoIndex and K-means (plan, Phase 3)
     T3 · materialization cleanup of old runs (plan, Phase 4)
 
-T2 and T3 are not written yet: their tests skip themselves (importorskip) until the module exists,
-and then they run as the contract of its API. Names follow the plan; rename here if the code differs.
+T3 is not written yet: its tests skip themselves (importorskip) until the module exists, and then
+they run as the contract of its API. Names follow the plan; rename here if the code differs.
 
 They run in Docker before each deploy (tests/Dockerfile, nothing installed on the laptop) and again on
 Databricks, in the job's unit_tests task, until CI exists (plan, Phase 2). See tests/README.md.
@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from pyspark.sql import SparkSession
 
@@ -206,12 +207,6 @@ def test_sample_resources_logs_machine_state(caplog):
 
 
 # ── T2 · modeling (plan, Phase 3) ─────────────────────────────────────────────
-# Expected API (not written yet):
-#   src/common/geo_index.py      GeoIndex(spot_id=, latitude=, longitude=, sector=, modality_mask=)
-#                                .query(lat, lon, r_km, sector, mask) -> list[int]
-#   src/ml_pipeline/modeling.py  cluster_sector(vectors, seed=0) -> (labels, k), k in 5–8 by silhouette
-#                                with_cluster_id(fs, clusters) -> fs with cluster_id (null if not candidate)
-
 KM = 1 / 111.0  # degrees of latitude per km, enough for a test
 
 
@@ -252,9 +247,74 @@ def test_kmeans_k_by_silhouette_and_deterministic():
     rng = np.random.default_rng(0)
     centers = np.eye(7)[:6] * 10  # six far-apart groups of 10 spots
     vectors = np.vstack([c + rng.normal(scale=0.1, size=(10, 7)) for c in centers])
-    labels, k = modeling.cluster_sector(vectors, seed=0)
-    assert k == 6 and len(labels) == len(vectors)
-    assert (modeling.cluster_sector(vectors, seed=0)[0] == labels).all()
+    model, _ = modeling.fit_kmeans(vectors, seed=0)
+    assert model.n_clusters == 6 and len(model.labels_) == len(vectors)
+    assert (modeling.fit_kmeans(vectors, seed=0)[0].labels_ == model.labels_).all()
+
+
+def _candidates(tabs, texts, sector_id=9):
+    return pd.DataFrame({
+        "spot_id": range(1, len(texts) + 1),
+        "sector_id": sector_id,
+        "tab_vector": tabs if tabs is not None else [None] * len(texts),
+        "nlp_vector": texts,
+    })
+
+
+def _two_groups(seed=0):
+    """Eight spots near tab A with text near T, eight near tab B with text near U."""
+    rng = np.random.default_rng(seed)
+    tab_a, tab_b, text_t, text_u = np.eye(4)
+    noise = lambda: rng.normal(scale=0.01, size=4)  # noqa: E731
+    tabs = [tab_a + noise() for _ in range(8)] + [tab_b + noise() for _ in range(8)]
+    texts = [text_t + noise() for _ in range(8)] + [text_u + noise() for _ in range(8)]
+    return tabs, texts, tab_a, tab_b
+
+
+def test_spot_without_text_goes_to_its_tab_neighbours():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, tab_a, tab_b = _two_groups()
+    # Two spots without text, one next to each group. Zeros would put them in the same place.
+    frame = _candidates([*tabs, tab_a, tab_b], [*texts, None, None])
+    out = modeling.cluster_candidates(frame).clusters.set_index("spot_id")["cluster_id"]
+    assert out.loc[17] in set(out.loc[1:8]) and out.loc[18] in set(out.loc[9:16])
+    assert out.loc[17] != out.loc[18]
+
+
+def test_spot_without_text_does_not_train_the_model():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, tab_a, _ = _two_groups()
+    alone = modeling.cluster_candidates(_candidates(tabs, texts))
+    with_extra = modeling.cluster_candidates(_candidates([*tabs, *[tab_a] * 30], [*texts, *[None] * 30]))
+    np.testing.assert_array_equal(alone.models[9].cluster_centers_, with_extra.models[9].cluster_centers_)
+
+
+def test_spread_counts_rows_with_and_without_text():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, tab_a, _ = _two_groups()
+    spread = modeling.cluster_candidates(_candidates([*tabs, tab_a], [*texts, None])).spread["9"]
+    assert sum(c["with_text"] for c in spread.values()) == 16
+    assert sum(c["without_text"] for c in spread.values()) == 1
+
+
+def test_land_clusters_on_text_alone():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    _, texts, _, _ = _two_groups()
+    result = modeling.cluster_candidates(_candidates(None, texts, sector_id=15))
+    assert result.models[15].cluster_centers_.shape[1] == 4 and len(result.clusters) == 16
+
+
+def test_candidate_without_any_vector_aborts():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    _, texts, _, _ = _two_groups()
+    with pytest.raises(modeling.ModelingError, match="neither tab_vector nor text"):
+        modeling.cluster_candidates(_candidates(None, [*texts, None], sector_id=15))
+
+
+def test_sector_with_too_few_rows_aborts():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    with pytest.raises(modeling.ModelingError, match="too few"):
+        modeling.fit_kmeans(np.eye(4))
 
 
 def test_cluster_id_only_for_candidates(result, gold):

@@ -37,7 +37,7 @@ Todo está en `test_training_pipeline.py`, una sección por paso del entrenamien
 | `spark_probes_measure_each_factor` | ¿Corren todas las sondas de diagnóstico? |
 | `spark_probes_never_fail_the_run` | ¿Una sonda que falla deja terminar T1? |
 
-**T2 · modelado y T3 · DynamoDB** — todavía sin código: estos tests se saltan solos hasta que exista.
+**T2 · modelado y T3 · DynamoDB** — T3 todavía sin código: sus tests se saltan solos hasta que exista.
 
 - **T2, en una línea:** ubica 5 spots inventados alrededor de un clic y revisa que solo salgan los cercanos,
   del mismo tipo y con la misma modalidad; además, que los grupos del K-means salgan bien y siempre iguales.
@@ -52,6 +52,12 @@ Todo está en `test_training_pipeline.py`, una sección por paso del entrenamien
 | `geo_index_rent_and_sale_click_matches_both` | ¿Un spot de renta y venta encuentra a los dos tipos? |
 | `geo_index_roundtrip` | ¿El índice guardado y vuelto a abrir responde igual? |
 | `kmeans_k_by_silhouette_and_deterministic` | ¿Elige bien la cantidad de grupos y siempre da lo mismo? |
+| `spot_without_text_goes_to_its_tab_neighbours` | ¿Un spot sin texto cae con los que se le parecen en datos? |
+| `spot_without_text_does_not_train_the_model` | ¿Los spots sin texto quedan fuera del entrenamiento? |
+| `spread_counts_rows_with_and_without_text` | ¿Se cuenta bien cuántos con y sin texto hay por grupo? |
+| `land_clusters_on_text_alone` | ¿Land se agrupa solo con texto? |
+| `candidate_without_any_vector_aborts` | ¿Se detiene si un candidato no tiene ningún vector? |
+| `sector_with_too_few_rows_aborts` | ¿Se detiene si un sector tiene muy pocas filas? |
 | `cluster_id_only_for_candidates` | ¿Solo los candidatos reciben grupo? |
 | `cleanup_keeps_last_three_by_number` | ¿Se borran las tablas viejas y quedan las 3 últimas? |
 | `cleanup_ignores_folders_that_are_not_runs` | ¿La limpieza respeta carpetas que no son corridas? |
