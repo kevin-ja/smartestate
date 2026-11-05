@@ -43,3 +43,6 @@ HANDOFF.md
 
 # Logs de corridas descargados localmente: no se versionan
 /logs/
+
+# Bitácora local de las corridas: no se versiona
+/data_pipeline.md
