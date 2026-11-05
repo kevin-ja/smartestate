@@ -304,7 +304,7 @@ Es la integración entre los dos feature stores. Corre después del modeling pip
    `table_name`,
    [API](https://api-docs.databricks.com/python/feature-engineering/latest/ml_features.online_store_spec.html)).
 2. **Limpiar (P31, Kevin 2026-11-04):** en DynamoDB (`spots_fs_online_*`) y en S3 (`runs/<run_id>/`) quedan las últimas 3
-   corridas **más el último champion**, para no borrar la que está en producción. Los champions anteriores se borran.
+   corridas, **el último champion y la corrida en producción** (`runs/production.json`, que escribe el CD). Los champions anteriores se borran.
    Solo se limpia si la tabla nueva pasó el smoke test. **El orden es por fecha real** (`CreationDateTime` en DynamoDB,
    fecha de los archivos en S3): el `run_id` de Databricks no crece con el tiempo.
 

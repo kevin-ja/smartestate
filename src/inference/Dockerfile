@@ -12,14 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Dependencias primero: esta capa queda en caché y solo se rehace si cambian las versiones.
-# Mismas versiones que requirements.txt.
-RUN pip install --no-cache-dir \
-    fastapi==0.162.0 \
-    uvicorn==0.54.0 \
-    boto3==1.43.124 \
-    numpy==2.5.3 \
-    scikit-learn==1.9.1 \
-    joblib==1.6.0
+COPY src/inference/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Solo el código que importa la API. GeoIndex debe estar en la misma ruta en que se guardó.
 WORKDIR /app

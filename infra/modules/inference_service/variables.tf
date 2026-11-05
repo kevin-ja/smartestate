@@ -16,6 +16,11 @@ variable "lake_bucket_arn" {
   type        = string
 }
 
+variable "ansible_bucket_arn" {
+  description = "Bucket por el que Ansible pasa sus archivos a la instancia."
+  type        = string
+}
+
 variable "allowed_cidrs" {
   description = "IP que pueden llamar a la API, ej. [\"203.0.113.10/32\"]. Vacío: nadie entra desde afuera."
   type        = list(string)

@@ -74,6 +74,18 @@ variable "inference_allowed_cidrs" {
   default     = []
 }
 
+variable "github_repository" {
+  description = "Repositorio cuyo CI/CD puede entrar a AWS."
+  type        = string
+  default     = "kevin-ja/smartestate"
+}
+
+variable "create_github_oidc_provider" {
+  description = "false si la cuenta ya tiene el proveedor OIDC de GitHub: AWS admite uno solo por URL."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags aplicados a todos los recursos."
   type        = map(string)

@@ -1,0 +1,200 @@
+# CI/CD de la inferencia (inference_pipeline_design.md).
+#
+#   Pull request   Tests unitarios.
+#   Push a main    Tests → imagen → integración → push a ECR → Ansible → actualiza runs/production.json.
+#   Manual         Artefactos nuevos o rollback: despliega otro run_id con la imagen actual, sin construir nada.
+#
+# Si un paso falla, no sigue ni cambia lo que está en producción, y GitHub avisa por correo.
+# El repo es público: los valores sensibles van en secretos, que GitHub oculta en los logs.
+name: Inference
+
+on:
+  pull_request:
+    paths:
+      - src/inference/**
+      - src/common/geo_index.py
+      - src/ml_pipeline/materialization.py
+      - tests/test_inference*.py
+      - deploy/ansible/**
+      - .github/workflows/inference.yml
+  push:
+    branches: [main]
+    paths:
+      - src/inference/**
+      - src/common/geo_index.py
+      - src/ml_pipeline/materialization.py
+      - tests/test_inference*.py
+      - deploy/ansible/**
+      - .github/workflows/inference.yml
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: run_id a desplegar. Vacío usa el que está en producción.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # así GitHub activa pipefail: un fallo dentro de un pipe detiene el paso
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: "3.12.3"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Instalar dependencias
+        run: pip install -r src/inference/requirements-test.txt
+
+      - name: Correr los tests unitarios
+        run: python -m pytest tests/test_inference.py -v -p no:cacheprovider
+
+  deliver:
+    needs: unit-tests
+    # Solo desde main: el rol de AWS no admite otra rama.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: inference-deploy # dos despliegues a la vez pisarían el contenedor
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      LAKE: smartestate-lake-${{ secrets.AWS_ACCOUNT_ID }}
+      ANSIBLE_BUCKET: smartestate-ansible-${{ secrets.AWS_ACCOUNT_ID }}
+      REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/smartestate-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Decidir qué se despliega
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          runs_root="s3://${LAKE}/runs"
+          pointer='{}'
+          if aws s3 cp "${runs_root}/production.json" pointer.json; then
+            pointer="$(cat pointer.json)"
+          fi
+
+          run_id="${INPUT_RUN_ID:-$(jq -r '.run_id // empty' <<< "$pointer")}"
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::No hay un run_id válido: indícalo al lanzar el workflow o crea runs/production.json."
+            exit 1
+          fi
+
+          if [[ "$EVENT" == "push" ]]; then
+            image_tag="$SHA"
+          else
+            image_tag="$(jq -r '.image_tag // empty' <<< "$pointer")"
+            if [[ -z "$image_tag" ]]; then
+              echo "::error::runs/production.json no indica qué imagen desplegar."
+              exit 1
+            fi
+          fi
+
+          {
+            echo "RUN_ID=$run_id"
+            echo "IMAGE_TAG=$image_tag"
+            echo "IMAGE=${REGISTRY}/smartestate-inference:${image_tag}"
+            echo "RUNS_ROOT=$runs_root"
+          } >> "$GITHUB_ENV"
+
+      - name: Entrar a ECR
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - name: Construir la imagen
+        if: github.event_name == 'push'
+        run: docker build --platform linux/amd64 -f src/inference/Dockerfile -t "$IMAGE" .
+
+      - name: Bajar la imagen actual
+        if: github.event_name != 'push'
+        run: docker pull "$IMAGE"
+
+      - name: Levantar la imagen
+        run: |
+          docker run -d --name inference-test -p 8000:8000 \
+            -e RUN_ID -e RUNS_ROOT -e AWS_REGION \
+            -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+            "$IMAGE"
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 http://localhost:8000/health
+
+      - name: Correr los tests de integración
+        env:
+          INFERENCE_URL: http://localhost:8000
+        run: |
+          pip install -r src/inference/requirements-test.txt
+          python -m pytest tests/test_inference_integration.py -v -p no:cacheprovider
+
+      - name: Mostrar los logs del contenedor
+        if: failure()
+        run: docker logs --tail 50 inference-test || true
+
+      - name: Apagar la imagen de prueba
+        if: always()
+        run: docker rm -f inference-test || true
+
+      - name: Subir la imagen a ECR
+        if: github.event_name == 'push'
+        run: docker push "$IMAGE"
+
+      - name: Encontrar la instancia
+        run: |
+          instance_id="$(aws ec2 describe-instances \
+            --filters Name=tag:Name,Values=smartestate-inference Name=instance-state-name,Values=running \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+          if [[ ! "$instance_id" =~ ^i- ]]; then
+            echo "::error::La EC2 de inferencia no está encendida: corre el workflow Infra o terraform apply."
+            exit 1
+          fi
+          echo "INSTANCE_ID=$instance_id" >> "$GITHUB_ENV"
+
+      - name: Instalar Ansible y el plugin de SSM
+        working-directory: deploy/ansible
+        run: |
+          curl -fsSL -o /tmp/session-manager-plugin.deb \
+            https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          sudo dpkg -i /tmp/session-manager-plugin.deb
+          pip install -r requirements.txt
+          ansible-galaxy collection install -r requirements.yml
+
+      - name: Desplegar con Ansible
+        working-directory: deploy/ansible
+        run: |
+          ansible-playbook -i "${INSTANCE_ID}," deploy.yml \
+            -e "image=${IMAGE}" -e "run_id=${RUN_ID}" \
+            -e "runs_root=${RUNS_ROOT}" -e "ansible_bucket=${ANSIBLE_BUCKET}"
+
+      - name: Registrar lo que quedó en producción
+        run: |
+          jq -n --arg run_id "$RUN_ID" --arg image_tag "$IMAGE_TAG" '{run_id: $run_id, image_tag: $image_tag}' \
+            | aws s3 cp - "${RUNS_ROOT}/production.json" --content-type application/json
+          {
+            echo "### Desplegado"
+            echo "- \`run_id\`: \`${RUN_ID}\`"
+            echo "- Imagen: \`${IMAGE_TAG}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

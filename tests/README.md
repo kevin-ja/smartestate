@@ -80,7 +80,9 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 | `get_clicked_*`, `get_candidates_*` | ¿Lee bien el formato de DynamoDB, parte en tandas y reintenta? |
 | `recommendations_*`, `health_*`, `nothing_answers_*` | ¿La API responde 200, 404, 422 y 503 cuando corresponde? |
 
-- **Lo que no se prueba aquí:** DynamoDB real y la latencia.
+**Inferencia · integración** (`test_inference_integration.py`): corre en el CD contra un contenedor real, S3 y DynamoDB. Si no hay contenedor, se salta.
+
+- **Lo que no se prueba aquí:** la latencia.
 - **Dónde corre:** `./ss/bin/python -m pytest tests/test_inference.py`. En Docker y Databricks no está FastAPI, así que los tests de la API se saltan.
 
 ## Cuándo y cómo correrlo

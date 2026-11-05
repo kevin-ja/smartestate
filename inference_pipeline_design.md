@@ -89,6 +89,83 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 5. ✅ Terraform: `infra/modules/inference_service` aplicado (`t3.small`).
 6. ✅ Despliegue con `scripts/deploy.bash` (`756577598248164`, imagen `test`): `/health` y `/recommendations` responden desde afuera.
 7. Medición de latencia dentro de EC2.
+8. CI/CD: código escrito y validado localmente; falta la puesta en marcha y la primera corrida en GitHub.
+
+## Puesta en marcha del CI/CD
+
+**Una sola vez, en este orden.** Desde el paso 3, `infra/` exige el backend: `start_up.sh`, `shut_down.sh` y `shut_down_inference_infra.sh` fallan hasta terminar el paso 3.
+
+**1. Revisar si la cuenta ya tiene el proveedor OIDC de GitHub.** Con el administrador:
+
+```bash
+aws iam list-open-id-connect-providers --profile <perfil-admin>
+```
+
+Si aparece `token.actions.githubusercontent.com`, agregar `TF_VAR_create_github_oidc_provider=false` a `.env`.
+
+**2. Crear la política nueva y adjuntarla a `smartestate-data`.** Con el administrador:
+
+```bash
+sed 's/ACCOUNT_ID/<account_id>/g' infra/bootstrap/iac-smartestate-cicd.json > /tmp/iac-cicd.json
+aws iam create-policy --profile <perfil-admin> --policy-name iac-smartestate-cicd \
+  --policy-document file:///tmp/iac-cicd.json
+aws iam attach-user-policy --profile <perfil-admin> --user-name smartestate-data \
+  --policy-arn arn:aws:iam::<account_id>:policy/iac-smartestate-cicd
+```
+
+**3. Crear el bucket de estado y migrar.** Responder `yes` a la copia del estado:
+
+```bash
+bash infra/bootstrap/create-tfstate-bucket.sh
+cp infra/terraform.tfstate ~/terraform.tfstate.backup
+cp infra/backend.hcl.example infra/backend.hcl     # poner el ID de la cuenta
+(cd infra && AWS_PROFILE=smartestate terraform init -migrate-state -backend-config=backend.hcl)
+```
+
+**4. Crear los roles y buckets, y levantar la inferencia.** El primer `apply` agrega 15 recursos (14 si el proveedor ya existía); el segundo, 17 si la infra estaba apagada. La EC2 cobra desde ese momento:
+
+```bash
+(cd infra && set -a && . ../.env && set +a && AWS_PROFILE=smartestate terraform apply -target=module.cicd)
+(cd infra && set -a && . ../.env && set +a && AWS_PROFILE=smartestate terraform apply -target=module.inference_service)
+```
+
+**5. Registrar el `run_id` de producción.** La imagen `test` se borró al apagar la infra, así que el primer despliegue debe ser un push a `main`, que construye la suya. El lanzamiento manual funciona desde el siguiente:
+
+```bash
+echo '{"run_id":"756577598248164","image_tag":"test"}' \
+  | aws s3 cp - s3://smartestate-lake-<account_id>/runs/production.json --profile smartestate
+```
+
+**6. Configurar GitHub.** Los valores de los secretos son los de `.env`. `INFERENCE_ALLOWED_CIDRS` debe coincidir con `.env`, o Terraform revertirá la regla:
+
+```bash
+gh secret set AWS_ACCOUNT_ID
+gh secret set DATABRICKS_ACCOUNT_ID
+gh secret set DAILY_USER_EMAIL
+gh secret set INFERENCE_ALLOWED_CIDRS
+
+R=repos/kevin-ja/smartestate/environments
+BRANCHES='"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}'
+echo "{$BRANCHES}" | gh api -X PUT "$R/terraform-plan" --input -
+echo "{\"reviewers\":[{\"type\":\"User\",\"id\":$(gh api user --jq .id)}],$BRANCHES}" \
+  | gh api -X PUT "$R/production" --input -
+gh api -X POST "$R/terraform-plan/deployment-branch-policies" -f name=main
+gh api -X POST "$R/production/deployment-branch-policies" -f name=main
+```
+
+**7. Hacer merge a `main`** con la EC2 encendida. Corren los dos workflows; Infra pide aprobación solo si hay cambios.
+
+## Operación del CI/CD
+
+| Caso | Qué hacer | Qué pasa |
+|---|---|---|
+| Cambio en la API | Push a `main` | Tests → imagen → integración → ECR → Ansible → `production.json` |
+| Cambio en `infra/` (inferencia) | Push a `main` | Plan en bucket privado → aprobación → apply |
+| Artefactos nuevos o rollback | Lanzar el workflow Inference con el `run_id` | Mismo despliegue, con la imagen actual |
+
+- `module.cicd` lo aplica Kevin a mano: así un workflow no puede ampliar sus propios permisos.
+- Si la EC2 está apagada, el workflow falla antes de desplegar y no cambia `production.json`.
+- `scripts/deploy.bash` queda como alternativa manual.
 
 ## Cómo correrla
 

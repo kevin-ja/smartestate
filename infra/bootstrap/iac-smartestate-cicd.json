@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BucketsDelCiCd",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::smartestate-tfstate-*",
+        "arn:aws:s3:::smartestate-tfstate-*/*",
+        "arn:aws:s3:::smartestate-tfplans-*",
+        "arn:aws:s3:::smartestate-tfplans-*/*",
+        "arn:aws:s3:::smartestate-ansible-*",
+        "arn:aws:s3:::smartestate-ansible-*/*"
+      ]
+    },
+    {
+      "Sid": "ProveedorOidcDeGithub",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateOpenIDConnectProvider",
+        "iam:DeleteOpenIDConnectProvider",
+        "iam:GetOpenIDConnectProvider",
+        "iam:TagOpenIDConnectProvider",
+        "iam:UntagOpenIDConnectProvider",
+        "iam:UpdateOpenIDConnectProviderThumbprint"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+    }
+  ]
+}

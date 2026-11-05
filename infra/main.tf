@@ -176,4 +176,20 @@ module "inference_service" {
   lake_bucket_arn = module.lake.bucket_arn
   allowed_cidrs   = var.inference_allowed_cidrs
   tags            = merge(var.tags, { Stage = "inference" })
+
+  ansible_bucket_arn = "arn:aws:s3:::${var.project}-ansible-${var.account_id}"
+}
+
+# CI/CD de la inferencia. Lo aplica Kevin a mano con -target=module.cicd, nunca el workflow.
+module "cicd" {
+  source = "./modules/cicd"
+
+  project              = var.project
+  account_id           = var.account_id
+  region               = var.region
+  github_repository    = var.github_repository
+  create_oidc_provider = var.create_github_oidc_provider
+  lake_bucket_arn      = module.lake.bucket_arn
+  ecr_repository_name  = "${var.project}-inference"
+  tags                 = merge(var.tags, { Stage = "cicd" })
 }

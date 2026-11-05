@@ -16,13 +16,15 @@ terraform {
     }
   }
 
-  # Estado local. Para migrar a S3 más adelante: añadir aquí un bloque
-  # `backend "s3"` y correr `terraform init -migrate-state`.
+  # Estado en un bucket privado, para que lo use también GitHub Actions. El nombre va aparte porque lleva el ID
+  # de la cuenta y el repo es público: ver backend.hcl.example.
+  backend "s3" {}
 }
 
 provider "aws" {
-  region  = var.region
-  profile = var.profile
+  region = var.region
+  # Vacío en GitHub Actions: las credenciales llegan por OIDC, no por un perfil local.
+  profile = var.profile == "" ? null : var.profile
 
   default_tags {
     tags = var.tags

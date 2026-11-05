@@ -172,6 +172,20 @@ data "aws_iam_policy_document" "service" {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.this.arn}:*"]
   }
+
+  statement {
+    sid       = "ArchivosDeAnsible"
+    effect    = "Allow"
+    actions   = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
+    resources = ["${var.ansible_bucket_arn}/*"]
+  }
+
+  statement {
+    sid       = "BucketDeAnsible"
+    effect    = "Allow"
+    actions   = ["s3:GetBucketLocation", "s3:GetEncryptionConfiguration"]
+    resources = [var.ansible_bucket_arn]
+  }
 }
 
 resource "aws_iam_role" "this" {

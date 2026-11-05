@@ -42,9 +42,14 @@ def _smoke_test(spark: SparkSession, args: argparse.Namespace, online_table: str
 
 
 def _clean_up(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
-    """Same rule on both sides: the last 3 runs + the latest champion. This run is never deleted (repair runs)."""
+    """Same rule on both sides: the last 3 runs + the latest champion + production. This run is never deleted (repair runs)."""
+    protect = {args.run_id}
     champion = latest_champion_run_id(args.experiment)
-    protect = {args.run_id, champion} if champion else {args.run_id}
+    if champion:
+        protect.add(champion)
+    pointer = storage.read_runs_file(spark, args.runs_root, materialization.PRODUCTION_FILE)
+    if pointer is not None:
+        protect.add(materialization.production_run_id(pointer))
     logger.info("cleanup: keeping the last %d runs and %s", materialization.KEEP_RUNS, sorted(protect))
 
     prefix = materialization.ONLINE_TABLE_PREFIX
