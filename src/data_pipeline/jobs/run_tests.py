@@ -26,7 +26,9 @@ sys.path.insert(0, str(root))
 import pytest  # noqa: E402
 
 if __name__ == "__main__":
-    # -p no:cacheprovider: the bundle folder is read-only for the job's service principal.
+    # The bundle folder is read-only for the job's service principal: no pytest cache
+    # (-p no:cacheprovider) and no .pyc from assertion rewriting (dont_write_bytecode).
+    sys.dont_write_bytecode = True
     code = pytest.main([str(root / "tests"), "-v", "-p", "no:cacheprovider"])
     if code != 0:
         raise SystemExit(code)

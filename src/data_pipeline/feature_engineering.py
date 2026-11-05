@@ -10,7 +10,9 @@ callable, so tests can pass a fake one.
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +26,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, FloatType, LongType, StructField, StructType
 
+from src.common.run_monitor import stage
 from src.data_pipeline.contract.schema import (
     FS_OFFLINE_KEY,
     FS_OFFLINE_SCHEMA,
@@ -32,6 +35,8 @@ from src.data_pipeline.contract.schema import (
     TAB_DIMS,
 )
 
+logger = logging.getLogger(__name__)
+
 Encoder = Callable[[list[str]], np.ndarray]
 
 # Same separator as preprocessing.py. Copied, not imported: no stage imports another.
@@ -39,6 +44,7 @@ TEXT_SEPARATOR = ". "
 
 SBERT_MAX_SEQ_LENGTH = 128
 SBERT_BATCH_SIZE = 64
+SBERT_PROGRESS_CHUNK = 320  # texts between two progress lines in the log
 
 MODALITY_BITS = {"Rent": 1, "Sale": 2, "Rent & Sale": 3}
 
@@ -129,7 +135,9 @@ def tab_vectors(gold: DataFrame) -> tuple[DataFrame, dict[str, PipelineModel]]:
         models[spec.name] = model
         vectors.append(
             model.transform(rows).select(
-                FS_OFFLINE_KEY, vector_to_array("_tab_vector", "float32").alias("tab_vector")
+                FS_OFFLINE_KEY,
+                # vector_to_array marks elements as non-null; the contract allows null (FS_OFFLINE_SCHEMA).
+                vector_to_array("_tab_vector", "float32").cast(ArrayType(FloatType())).alias("tab_vector"),
             )
         )
     union = vectors[0]
@@ -154,10 +162,13 @@ def modality_mask(df: DataFrame) -> DataFrame:
 def load_encoder(model_dir: Path) -> Encoder:
     """SentenceTransformer from a local folder, offline, on CPU. Loaded once, on the driver."""
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    from sentence_transformers import SentenceTransformer  # heavy import, only where it runs
+    import torch  # heavy imports, only where they run
+    from sentence_transformers import SentenceTransformer
 
+    # torch's default (physical cores) on purpose: using every vCPU was slower, 7.8 vs 9.1 texts/s (data_pipeline.md).
     model = SentenceTransformer(str(model_dir), device="cpu")
     model.max_seq_length = SBERT_MAX_SEQ_LENGTH
+    logger.info("sbert: torch %s, %d threads", torch.__version__, torch.get_num_threads())
 
     def encode(texts: list[str]) -> np.ndarray:
         return model.encode(texts, batch_size=SBERT_BATCH_SIZE, convert_to_numpy=True, show_progress_bar=False)
@@ -177,19 +188,36 @@ def l2_normalize(vectors: np.ndarray) -> np.ndarray:
     return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
 
 
+def encode_with_progress(encode: Encoder, texts: list[str]) -> np.ndarray:
+    """Encodes by chunks, keeping the order, and logs the rate of each one: a stall shows up in the log."""
+    started = time.perf_counter()
+    parts = []
+    for start in range(0, len(texts), SBERT_PROGRESS_CHUNK):
+        parts.append(encode(texts[start:start + SBERT_PROGRESS_CHUNK]))
+        done = min(start + SBERT_PROGRESS_CHUNK, len(texts))
+        elapsed = time.perf_counter() - started
+        logger.info("sbert: %d/%d texts · %.0f s · %.1f texts/s", done, len(texts), elapsed, done / max(elapsed, 1e-3))
+    return np.concatenate(parts)
+
+
 def nlp_vectors(gold: DataFrame, encode: Encoder) -> DataFrame:
     """
     (spot_id, nlp_vector) for spots with a description; the rest get no row, so null after the join
     (D3). Runs on the driver: the cluster is single node and the batch is ~2,500 texts.
     """
-    rows = (
-        sbert_text(gold).filter("has_description").select(FS_OFFLINE_KEY, "sbert_text")
-        .orderBy(FS_OFFLINE_KEY).toPandas()
-    )
-    vectors = l2_normalize(encode(rows["sbert_text"].tolist())) if len(rows) else np.empty((0, NLP_DIM))
-    schema = StructType([StructField(FS_OFFLINE_KEY, LongType(), False), StructField("nlp_vector", ArrayType(FloatType()))])
-    frame = pd.DataFrame({FS_OFFLINE_KEY: rows[FS_OFFLINE_KEY], "nlp_vector": [v.tolist() for v in vectors]})
-    return gold.sparkSession.createDataFrame(frame, schema)
+    with stage("fe_sbert_collect"):
+        rows = (
+            sbert_text(gold).filter("has_description").select(FS_OFFLINE_KEY, "sbert_text")
+            .orderBy(FS_OFFLINE_KEY).toPandas()
+        )
+    with stage("fe_sbert_encode"):
+        vectors = (
+            l2_normalize(encode_with_progress(encode, rows["sbert_text"].tolist())) if len(rows) else np.empty((0, NLP_DIM))
+        )
+    with stage("fe_sbert_to_spark"):
+        schema = StructType([StructField(FS_OFFLINE_KEY, LongType(), False), StructField("nlp_vector", ArrayType(FloatType()))])
+        frame = pd.DataFrame({FS_OFFLINE_KEY: rows[FS_OFFLINE_KEY], "nlp_vector": [v.tolist() for v in vectors]})
+        return gold.sparkSession.createDataFrame(frame, schema)
 
 
 # --------------------------------------------------------------------------
@@ -265,7 +293,8 @@ def validate(features: DataFrame, gold_rows: int, with_description: int) -> list
 
 def transform(gold: DataFrame, encode: Encoder) -> FeatureResult:
     """Tabular -> modality_mask -> Text, with no I/O. Output columns follow FS_OFFLINE_SCHEMA."""
-    tab, models = tab_vectors(gold)
+    with stage("fe_tabular_fit"):
+        tab, models = tab_vectors(gold)
     nlp = nlp_vectors(gold, encode)
     features = (
         modality_mask(gold)
@@ -274,4 +303,6 @@ def transform(gold: DataFrame, encode: Encoder) -> FeatureResult:
         .withColumn("cluster_id", F.lit(None).cast("int"))
         .select(*FS_OFFLINE_SCHEMA.fieldNames())
     )
-    return FeatureResult(features, models, check_security_codes(gold))
+    with stage("fe_security_check"):
+        warnings = check_security_codes(gold)
+    return FeatureResult(features, models, warnings)

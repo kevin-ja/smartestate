@@ -131,16 +131,27 @@ CSV (S3) ──▶ ingesta ──▶ limpieza ──▶ preprocesamiento ──�
 | **Data pipeline** | Ingesta, limpieza y preprocesamiento (los tres flujos que ya existen) + feature engineering (nuevo, incluye embeddings del texto con **SBERT**, el embedder puede cambiar, y los encodings como `modality_mask`) | Spots FS offline (`spots_fs_offline`), reescrita completa con `cluster_id` nulo, y los artefactos del feature engineering |
 | **Modeling pipeline** | Modelado: lee Spots FS offline, entrena el K-means y construye el GeoIndex **solo con candidatos** (`is_candidate = True`). Predice el `cluster_id` de los candidatos en memoria y, al final, si todo salió bien, lo agrega a Spots FS offline (nulo para los no candidatos) | K-means, GeoIndex y `cluster_id` en Spots FS offline |
 
-**Job en Databricks:** un solo job, `smartestate_train`, con tres tasks en secuencia. Cada una corre
+**Job en Databricks:** un solo job, `smartestate_train`, con tasks en secuencia. Cada una corre
 solo si la anterior terminó bien.
 
 ```
 job smartestate_train
-┌──────────────────┐   ┌──────────────┐   ┌───────────────────┐
-│ T1 data_pipeline │──▶│ T2 modeling  │──▶│ T3 materialization│
-└──────────────────┘   └──────────────┘   └───────────────────┘
- CSV → spots_fs_offline  K-means+GeoIndex   offline → DynamoDB
+┌────────────┐   ┌──────────────────┐   ┌──────────────┐   ┌─────────────┐   ┌───────────────────┐
+│ unit_tests │──▶│ T1 data_pipeline │──▶│ T2 modeling  │──▶│ validate_fs │──▶│ T3 materialization│
+└────────────┘   └──────────────────┘   └──────────────┘   └─────────────┘   └───────────────────┘
+  código          CSV → spots_fs_offline  K-means+GeoIndex   ¿datos OK?        offline → DynamoDB
 ```
+
+**Dos puertas (2026-11-03, Kevin):**
+
+* **`unit_tests` (código), primero.** Si el código está roto no se paga T1 ni se escribe la tabla.
+  Antes de cada deploy, pytest corre también en local (`./ss`), así el cluster no descubre lo que la
+  Mac ya podía ver.
+* **`validate_fs` (datos), antes de T3.** Revisa Spots FS offline ya escrita: esquema, PK única,
+  nulos y conteos. Si falla, no se publica a DynamoDB y se avisa. Se escribe junto con T2/T3.
+
+**Retomar donde se quedó:** *repair run* sobre el mismo `run_id` (repite solo lo fallido y lo que
+depende de ello). Ej.: `databricks jobs repair-run <run_id> --rerun-all-failed-tasks`.
 
 **`run_id` (2026-10-19, Kevin):** es el **`job.run_id` de Databricks**. El bundle se lo pasa a las tres
 tasks con `{{job.run_id}}`: nadie lo crea ni lo pasa a mano, y un repair run conserva el mismo id. El

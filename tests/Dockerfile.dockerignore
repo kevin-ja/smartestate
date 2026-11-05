@@ -1,0 +1,6 @@
+# Contexto del build de tests/Dockerfile: solo src/ y tests/ (sin ss/, data/, .env ni infra/).
+*
+!src/
+!tests/
+**/__pycache__
+**/*.pyc

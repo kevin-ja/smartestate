@@ -40,3 +40,6 @@ HANDOFF.md
 
 # Script local para apagar el workspace: no se versiona
 /shut_down.sh
+
+# Logs de corridas descargados localmente: no se versionan
+/logs/

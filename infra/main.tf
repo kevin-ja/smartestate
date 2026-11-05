@@ -155,5 +155,7 @@ module "dbx_compute_policies" {
   engineers_group = module.dbx_identities.engineers_group_name
   pipeline_group  = module.dbx_pipeline_identity.group_name
 
+  dynamodb_instance_profile_arn = module.dynamodb_publish_profile.instance_profile_arn
+
   depends_on = [module.dbx_identities, module.dbx_pipeline_identity]
 }

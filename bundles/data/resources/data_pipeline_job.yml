@@ -22,6 +22,9 @@ resources:
       parameters:
         - name: ingest_date
           default: "{{job.start_time.iso_date}}"
+        # Experimentos de diagnóstico al final de T1 (data_pipeline.md). Agregan ~1,5 min.
+        - name: spark_probes
+          default: "false"
 
       job_clusters:
         - job_cluster_key: jobs
@@ -70,4 +73,6 @@ resources:
               - ${var.catalog}.feature_store_offline.spots_fs_offline
               - --experiment
               - ${resources.experiments.train.name}
+              - --spark-probes
+              - "{{job.parameters.spark_probes}}"
           libraries: *libraries

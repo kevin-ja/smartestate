@@ -81,7 +81,8 @@ Sin tablas intermedias (`new_arch.md` §3.1): **una sola task** que encadena las
 
 * Tests de las funciones puras con Spark `local[*]` (se corren en Databricks hasta que exista el CI).
 * Corrida en dev sobre `data/`: 2.500 filas leídas, la cuarentena cuadra con la ingesta actual, y los
-  conteos de candidatos por sector son 634/466/164/16.
+  conteos de candidatos por sector son 625/484/160/16 (corregido 2026-11-04: el 634/466/164/16 anterior
+  no seguía D11; detalle en `HANDOFF.md` §9).
 * Las normas L2 de `tab_vector` y `nlp_vector` valen 1 ± 1e-6.
 
 **Hecho cuando:** `spots_fs_offline` existe con el esquema del contrato y la validación pasa.

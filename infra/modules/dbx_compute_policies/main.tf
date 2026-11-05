@@ -6,8 +6,8 @@
 #   - dev:  cluster interactivo para desarrollar (engineers). Auto-termination fija.
 #   - jobs: cluster efímero de un job (pipeline). Nace y muere con cada corrida.
 #
-# Las dos son un solo nodo e instancia chica: el dataset son dos CSV. dev es spot; jobs, on-demand.
-# Si algún día hace falta escalar, se cambia la policy de jobs, no el código.
+# Las dos son un solo nodo: el dataset son dos CSV. dev es spot; jobs, on-demand.
+# El nodo de jobs es propio (jobs_node_type_id): escalar T1 no encarece el cluster dev.
 # Viven en el workspace: se destruyen y recrean con él en cada sesión (no guardan estado).
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -29,6 +29,8 @@ locals {
     # Dedicado (single user): el modo que Unity Catalog exige para leer raw/ como archivos.
     "data_security_mode" = { type = "fixed", value = "SINGLE_USER" }
     "instance_pool_id"   = { type = "forbidden", hidden = true }
+    # Zona elegida por Databricks, con reintento en otra: m5d.large no existe en us-east-1e (2026-11-03).
+    "aws_attributes.zone_id" = { type = "fixed", value = "auto" }
   }
 }
 
@@ -49,15 +51,20 @@ resource "databricks_cluster_policy" "dev" {
 
 resource "databricks_cluster_policy" "jobs" {
   name        = "${var.project}-jobs"
-  description = "Cluster efímero de los jobs del pipeline: 1 nodo ${var.node_type_id}."
+  description = "Cluster efímero de los jobs del pipeline: 1 nodo ${var.jobs_node_type_id}."
 
   definition = jsonencode(merge(local.common, {
-    "cluster_type"    = { type = "fixed", value = "job" }
-    "custom_tags.Uso" = { type = "fixed", value = "jobs" }
+    # Reemplazan a los de local.common (merge: gana el último).
+    "node_type_id"        = { type = "fixed", value = var.jobs_node_type_id }
+    "driver_node_type_id" = { type = "fixed", value = var.jobs_node_type_id }
+    "cluster_type"        = { type = "fixed", value = "job" }
+    "custom_tags.Uso"     = { type = "fixed", value = "jobs" }
     # On-demand: el único nodo es el driver, y si AWS lo reclama se pierde la corrida entera
     # (pasó el 2026-09-28). Cuesta centavos más por corrida.
     "aws_attributes.availability"    = { type = "fixed", value = "ON_DEMAND" }
     "aws_attributes.first_on_demand" = { type = "fixed", value = 1 }
+    # Fijo: los tasks del job comparten cluster y la publicación a DynamoDB (T3) lo necesita.
+    "aws_attributes.instance_profile_arn" = { type = "fixed", value = databricks_instance_profile.dynamodb.id }
   }))
 }
 
@@ -81,4 +88,24 @@ resource "databricks_permissions" "jobs" {
       permission_level = "CAN_USE"
     }
   }
+}
+
+# ── Instance profile de DynamoDB ─────────────────────────────────────────────
+# El rol vive en AWS (modules/dynamodb_publish_profile); aquí se registra en el workspace para que
+# los job clusters lo usen al publicar el feature store online. Al registrarlo, Databricks valida
+# que el cross-account role pueda pasarlo (PassRole, 4b).
+resource "databricks_instance_profile" "dynamodb" {
+  instance_profile_arn = var.dynamodb_instance_profile_arn
+}
+
+# Mismos grupos que la policy de jobs: pipeline corre los jobs; engineers los despliega y prueba.
+data "databricks_group" "instance_profile_users" {
+  for_each     = toset([var.pipeline_group, var.engineers_group])
+  display_name = each.value
+}
+
+resource "databricks_group_role" "dynamodb" {
+  for_each = data.databricks_group.instance_profile_users
+  group_id = each.value.id
+  role     = databricks_instance_profile.dynamodb.id
 }
