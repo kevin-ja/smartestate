@@ -7,7 +7,7 @@ Los logs crudos viven en `logs/` (no versionado); lo que debe conservarse se cop
 |---|---|
 | **Meta de Kevin** | T1 completo en ≤15 min, ojalá 10 |
 | **Presupuesto** | Máquina de hasta el triple de costo y menos de 1 USD/hora |
-| **Estado** | Corrida 4: **18,0 min**. Faltan ~3 min para la meta de 15 |
+| **Estado** | Corrida 5: **16,6 min**. Faltan ~1,6 min para la meta de 15 |
 | **Pregunta abierta** | ¿Qué hace la JVM en los ~1.500 ms que preparaba una task con el plan de `gold`, y por qué en Docker no ocurre? Ya no bloquea: `localCheckpoint` eliminó ese costo |
 
 ## Reporte ejecutivo (2026-11-04)
@@ -67,18 +67,19 @@ lento se comería toda la ganancia.
 | 2 | 2026-11-04 | `726424880789805` | `r5d.xlarge` (4 vCPU, 32 GB) | Máquina, `pip_requirements`, monitoreo | SUCCESS | **43 min** |
 | 3 | 2026-11-04 | `304335789918515` | `r5d.xlarge` | `shuffle.partitions = 8` + sondas | SUCCESS, `spots_fs_offline` v5 | **20 min** (~18,6 sin sondas) |
 | 4 | 2026-11-04 | `508031956134800` | `r5d.xlarge` | torch con 4 hilos, `localCheckpoint`, sin sondas | SUCCESS, `spots_fs_offline` v6 | **18,0 min** |
+| 5 | 2026-11-04 | `669016108687066` | `r5d.xlarge` | torch de vuelta a 2 hilos; primera corrida con T2 y T3 | SUCCESS, `spots_fs_offline` v7 | **16,6 min** |
 
 ### Tiempos por tramo (min)
 
-| Tramo | Corrida 1 | Corrida 2 | Corrida 3 | Corrida 4 |
-|---|---:|---:|---:|---:|
-| Crear cluster | 11,4 | 5,4 | 5,4 | 5,9 |
-| `unit_tests` | 6,6 | 2,9 | 3,1 | 3,5 |
-| Spark (etapas abajo) | sin desglose | 28,6 | 3,2 | **1,4** |
-| SBERT: bajar, cargar y encode | sin desglose | 4,4 | 4,6 | 5,3 |
-| MLflow | ~7 | 1,4 | 1,7 | 1,5 |
-| Arranque de la task y otros | – | ~0,4 | ~0,6 | ~0,5 |
-| **Total sin sondas** | **~114** | **43,1** | **~18,6** | **18,0** |
+| Tramo | Corrida 1 | Corrida 2 | Corrida 3 | Corrida 4 | Corrida 5 |
+|---|---:|---:|---:|---:|---:|
+| Crear cluster | 11,4 | 5,4 | 5,4 | 5,9 | 5,4 |
+| `unit_tests` | 6,6 | 2,9 | 3,1 | 3,5 | 4,1 |
+| Spark (etapas abajo) | sin desglose | 28,6 | 3,2 | 1,4 | **1,1** |
+| SBERT: bajar, cargar y encode | sin desglose | 4,4 | 4,6 | 5,3 | **4,3** |
+| MLflow | ~7 | 1,4 | 1,7 | 1,5 | 1,4 |
+| Arranque de la task y otros | – | ~0,4 | ~0,6 | ~0,5 | ~0,4 |
+| **Total sin sondas** | **~114** | **43,1** | **~18,6** | **18,0** | **16,6** |
 
 La corrida 1 no tenía tiempos por etapa: sus ~88 min antes de MLflow no están desglosados. Las sondas de la
 corrida 3 suman 85 s: 25 s de experimentos y 60 s de espera final.
@@ -220,6 +221,19 @@ sbert: torch 2.14.1+cpu, 4 threads · 2092/2092 texts · 267 s · 7.8 texts/s
 
 Durante el encode de la corrida 4: CPU 89 %, carga 7,6. En la corrida 3: CPU 62 %, carga 4,0.
 
+### Corrida 5 · log
+
+`logs/t1_run_669016108687066/`
+
+```
+unit_tests     setup=321s exec=243s SUCCESS · 48 tests
+data_pipeline  setup=1s   exec=433s SUCCESS
+spots_fs_offline v7: rows 2500 · quarantine_rows 0 · with_description 2092 · candidatos 625 / 484 / 160 / 16
+sbert: torch 2.14.1+cpu, 2 threads · 2092/2092 texts · 214 s · 9.8 texts/s
+```
+
+Volver a 2 hilos bajó el encode de 267 a 214 s, en una sola comparación. El resto del job: T2 0,7 min, `validate_fs` 0,6 min y T3 ~1 min de trabajo.
+
 ### Referencia en Docker (2 CPU, 8 GB; SBERT, S3 y Delta simulados)
 
 | Prueba | Spark total | Preparación por task |
@@ -303,7 +317,7 @@ hasta ~7 min, incluida una espera final de 60 s.
 
 ## Siguientes pasos
 
-**Base estimada: ~17,4 min**, los 18,0 medidos menos los ~0,6 que costó torch con 4 hilos. Faltan ~2,4 min.
+**Base medida: 16,6 min** (corrida 5). Faltan ~1,6 min. Los totales de abajo parten de la estimación anterior de ~17,4 min.
 Los ahorros y totales son **estimados, sin medir**:
 
 | Opción | Ahorro | Total | Costo o riesgo |

@@ -116,10 +116,12 @@ Sin tablas intermedias (`new_arch.md` §3.1): **una sola task** que encadena las
 
 ## Fase 4 · Materialización (T3)
 
+**Estado (2026-11-04):** código y tests escritos, con `validate_fs`; sin correr en Databricks.
+
 | Paso | Qué |
 |---|---|
 | 4.1 | `publish_table(spots_fs_offline → AmazonDynamoDBSpec(table_name="spots_fs_online_<run_id>"))`, en cluster Dedicated con el instance profile |
-| 4.2 | Limpieza (P31): dejar las últimas 3 corridas **en los dos lados**: borrar las `spots_fs_online_*` más viejas en DynamoDB y los `runs/<run_id>/` más viejos en S3 |
+| 4.2 | Limpieza (P31, Kevin 2026-11-04): dejar las últimas 3 corridas **más el último champion**, **en los dos lados**: DynamoDB (`spots_fs_online_*`) y S3 (`runs/<run_id>/`). Los champions anteriores se borran como cualquier corrida. Se ordena por **fecha real** (`CreationDateTime` en DynamoDB, fecha de los archivos en S3), no por `run_id`, que no crece con el tiempo |
 | 4.3 | Smoke test: `GetItem` de un `spot_id` conocido; `nlp_vector` se parsea a 768 floats; existe la llave interna |
 
 **Hecho cuando:** la tabla existe, el ítem de prueba coincide con el offline y hay ≤ 3 tablas.

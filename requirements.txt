@@ -14,3 +14,7 @@ pypdf==6.18.0
 scikit-learn==1.9.1
 joblib==1.6.0
 pyyaml==6.0.3
+
+# T3 - materialization (mismas versiones en bundles/data/resources/data_pipeline_job.yml)
+databricks-feature-engineering==0.18.3
+boto3==1.43.124

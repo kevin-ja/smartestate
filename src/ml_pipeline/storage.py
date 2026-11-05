@@ -18,10 +18,51 @@ def read_candidates(spark: SparkSession, table: str) -> pd.DataFrame:
     return spark.table(table).filter("is_candidate").select(*CANDIDATE_COLUMNS).orderBy("spot_id").toPandas()
 
 
-def _copy_to_runs(spark: SparkSession, local: Path, destination: str) -> None:
+def read_smoke_row(spark: SparkSession, table: str) -> dict[str, Any]:
+    """First candidate with text, by spot_id: spot_id, cluster_id and nlp_vector for the T3 smoke test."""
+    row = (
+        spark.table(table).filter("is_candidate AND nlp_vector IS NOT NULL")
+        .select("spot_id", "cluster_id", "nlp_vector").orderBy("spot_id").first()
+    )
+    if row is None:
+        raise ValueError(f"{table} has no candidate with text to run the smoke test on")
+    return row.asDict()
+
+
+def _dbutils(spark: SparkSession):
     from pyspark.dbutils import DBUtils  # Databricks only: the one allowed exception (new_arch.md §5)
 
-    DBUtils(spark).fs.cp(f"file:{local}", destination)
+    return DBUtils(spark)
+
+
+def _newest_file_ms(dbutils, path: str) -> int:
+    """S3 folders have no date of their own: only the files inside do, at any depth."""
+    return max(
+        (_newest_file_ms(dbutils, entry.path) if entry.isDir() else entry.modificationTime for entry in dbutils.fs.ls(path)),
+        default=0,
+    )
+
+
+def list_run_folders(spark: SparkSession, runs_root: str) -> dict[str, float]:
+    """Run folder under runs/ -> its newest file, in seconds. Aborts on a run it cannot date: cleanup deletes."""
+    dbutils = _dbutils(spark)
+    folders = {}
+    for entry in dbutils.fs.ls(runs_root):
+        name = entry.name.rstrip("/")
+        if entry.isDir() and name.isdigit():  # others, like _probe, are not runs
+            newest_ms = _newest_file_ms(dbutils, entry.path)
+            if newest_ms <= 0:
+                raise ValueError(f"No file with a date under {entry.path}")
+            folders[name] = newest_ms / 1000
+    return folders
+
+
+def delete_run_folder(spark: SparkSession, runs_root: str, folder: str) -> None:
+    _dbutils(spark).fs.rm(f"{runs_root.rstrip('/')}/{folder}", recurse=True)
+
+
+def _copy_to_runs(spark: SparkSession, local: Path, destination: str) -> None:
+    _dbutils(spark).fs.cp(f"file:{local}", destination)
 
 
 def write_joblib(spark: SparkSession, value: Any, local: Path, destination: str) -> None:

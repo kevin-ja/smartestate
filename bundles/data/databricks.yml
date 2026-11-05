@@ -42,6 +42,12 @@ variables:
   catalog:
     description: Catálogo de Unity Catalog.
     default: smartestate
+  aws_region:
+    description: Región de las tablas de DynamoDB (T3). La misma de infra/.
+    default: us-east-1
+  alert_email:
+    description: Recibe el correo cuando falla el job (Kevin, 2026-11-04).
+    default: kjesus.apari@gmail.com
 
 run_as:
   service_principal_name: ${var.jobs_sp_id}

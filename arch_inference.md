@@ -67,6 +67,7 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
 │ 4 · LECTURA DE CANDIDATOS                       DynamoDB · lectura 2         │
 │ ENTRA  lista de spot_id                                                      │
 │ CÓMO   BatchGetItem con proyección (7 columnas, no la fila entera)           │
+│        spot_id sale de la llave interna, no es columna (new_arch.md §3.4)    │
 │        tandas de ≤ 100 ids en paralelo; tope de candidatos                   │
 │ SALE   tabla de candidatos: spot_id, tab_vector, nlp_vector,                 │
 │        rent_price_sqm, sale_price_sqm, modality_mask, cluster_id             │

@@ -1,7 +1,7 @@
 # T1 · data_pipeline: raw/ingest_date=<fecha>/ -> smartestate.feature_store_offline.spots_fs_offline,
 # en una sola task y sin tablas intermedias (new_arch.md §3.1). Cuarentena en runs/<run_id>/.
 # unit_tests corre antes, en el mismo job cluster: mientras no haya CI, es donde corren los tests
-# de Spark (plan, Fase 2). T2 · modeling corre después de T1; T3 se agrega en la Fase 5. Disparo manual por ahora.
+# de Spark (plan, Fase 2). Después: T2 · modeling -> validate_fs -> T3 · materialization. Disparo manual por ahora.
 
 resources:
   experiments:
@@ -17,6 +17,10 @@ resources:
     data_pipeline:
       name: smartestate_train
       max_concurrent_runs: 1
+
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
 
       # Por defecto, la fecha del run. Para reprocesar: --params ingest_date=YYYY-MM-DD
       parameters:
@@ -55,6 +59,10 @@ resources:
                 package: joblib==1.6.0
             - pypi:
                 package: pyyaml==6.0.3
+            - pypi:
+                package: databricks-feature-engineering==0.18.3
+            - pypi:
+                package: boto3==1.43.124
 
         - task_key: data_pipeline
           depends_on:
@@ -94,6 +102,36 @@ resources:
               - "{{job.run_id}}"
               - --runs-root
               - ${var.runs_root}
+              - --fs-table
+              - ${var.catalog}.feature_store_offline.spots_fs_offline
+              - --experiment
+              - ${resources.experiments.train.name}
+          libraries: *libraries
+
+        - task_key: validate_fs
+          depends_on:
+            - task_key: modeling
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/ml_pipeline/jobs/run_validate_fs.py
+            parameters:
+              - --fs-table
+              - ${var.catalog}.feature_store_offline.spots_fs_offline
+          libraries: *libraries
+
+        - task_key: materialization
+          depends_on:
+            - task_key: validate_fs
+          job_cluster_key: jobs
+          spark_python_task:
+            python_file: ../../../src/ml_pipeline/jobs/run_materialization.py
+            parameters:
+              - --run-id
+              - "{{job.run_id}}"
+              - --runs-root
+              - ${var.runs_root}
+              - --region
+              - ${var.aws_region}
               - --fs-table
               - ${var.catalog}.feature_store_offline.spots_fs_offline
               - --experiment

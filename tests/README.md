@@ -37,7 +37,7 @@ Todo está en `test_training_pipeline.py`, una sección por paso del entrenamien
 | `spark_probes_measure_each_factor` | ¿Corren todas las sondas de diagnóstico? |
 | `spark_probes_never_fail_the_run` | ¿Una sonda que falla deja terminar T1? |
 
-**T2 · modelado y T3 · DynamoDB** — T3 todavía sin código: sus tests se saltan solos hasta que exista.
+**T2 · modelado, `validate_fs` y T3 · DynamoDB**
 
 - **T2, en una línea:** ubica 5 spots inventados alrededor de un clic y revisa que solo salgan los cercanos,
   del mismo tipo y con la misma modalidad; además, que los grupos del K-means salgan bien y siempre iguales.
@@ -59,8 +59,16 @@ Todo está en `test_training_pipeline.py`, una sección por paso del entrenamien
 | `candidate_without_any_vector_aborts` | ¿Se detiene si un candidato no tiene ningún vector? |
 | `sector_with_too_few_rows_aborts` | ¿Se detiene si un sector tiene muy pocas filas? |
 | `cluster_id_only_for_candidates` | ¿Solo los candidatos reciben grupo? |
-| `cleanup_keeps_last_three_by_number` | ¿Se borran las tablas viejas y quedan las 3 últimas? |
+| `cleanup_orders_by_date_not_by_run_id` | ¿Se borran las corridas más viejas por fecha, no por número? |
+| `cleanup_applies_the_prefix_and_ignores_other_tables` | ¿La limpieza solo toca las tablas de corridas? |
 | `cleanup_ignores_folders_that_are_not_runs` | ¿La limpieza respeta carpetas que no son corridas? |
+| `cleanup_keeps_the_latest_champion_besides_the_last_three` | ¿Se conservan las 3 últimas más el último champion? |
+| `cleanup_with_a_recent_champion_keeps_only_three` | ¿Un champion reciente no agrega una corrida de más? |
+| `run_folders_are_dated_by_their_newest_file_at_any_depth` | ¿La fecha de una corrida sale de sus archivos? |
+| `run_folder_without_a_date_aborts` | ¿Se detiene si no puede fechar una corrida? |
+| `online_key_is_what_publish_table_writes` | ¿La llave de lectura es la que escribe `publish_table`? |
+| `smoke_check_*` | ¿El smoke test acepta un ítem correcto y detecta cada problema? |
+| `validate_fs_*` | ¿La puerta de datos deja pasar una tabla buena y frena cada problema? |
 
 ## Cuándo y cómo correrlo
 

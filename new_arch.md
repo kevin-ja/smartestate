@@ -148,7 +148,8 @@ job smartestate_train
   Antes de cada deploy, pytest corre también en local (`./ss`), así el cluster no descubre lo que la
   Mac ya podía ver.
 * **`validate_fs` (datos), antes de T3.** Revisa Spots FS offline ya escrita: esquema, PK única,
-  nulos y conteos. Si falla, no se publica a DynamoDB y se avisa. Se escribe junto con T2/T3.
+  nulos y conteos. Si falla, no se publica a DynamoDB. Cualquier task que falle envía un correo
+  (`email_notifications` del job, a `kjesus.apari@gmail.com`).
 
 **Retomar donde se quedó:** *repair run* sobre el mismo `run_id` (repite solo lo fallido y lo que
 depende de ello). Ej.: `databricks jobs repair-run <run_id> --rerun-all-failed-tasks`.
@@ -195,10 +196,9 @@ run de MLflow lo guarda como tag.
   | Columna | Tipo en DynamoDB | La usa en el clic |
   |---|---|---|
   | `_feature_store_internal__primary_keys` | String (llave; contiene `spot_id`) | `GetItem`, `BatchGetItem` |
-  | `spot_id` | Number | — |
   | `sector_id`, `modality_mask`, `latitude`, `longitude` | Number | Filtros 1 y 2 (del clickeado) |
-  | `tab_vector` | String (JSON) | 3A |
-  | `nlp_vector` | String (JSON) | 3A |
+  | `tab_vector` | List de Number | 3A |
+  | `nlp_vector` | List de Number | 3A |
   | `rent_price_sqm`, `sale_price_sqm` | Number | 3B |
   | `cluster_id` | Number (nulo si no es candidato) | 3C |
   | `is_candidate` | Boolean | — (ya aplicado en el GeoIndex) |
@@ -303,7 +303,10 @@ Es la integración entre los dos feature stores. Corre después del modeling pip
 1. **Publicar:** Spots FS offline → `spots_fs_online_<run_id>` en DynamoDB, con `publish_table` de Databricks (parámetro
    `table_name`,
    [API](https://api-docs.databricks.com/python/feature-engineering/latest/ml_features.online_store_spec.html)).
-2. **Limpiar (P31):** se borran las `spots_fs_online_*` más viejas en DynamoDB; quedan las últimas 3.
+2. **Limpiar (P31, Kevin 2026-11-04):** en DynamoDB (`spots_fs_online_*`) y en S3 (`runs/<run_id>/`) quedan las últimas 3
+   corridas **más el último champion**, para no borrar la que está en producción. Los champions anteriores se borran.
+   Solo se limpia si la tabla nueva pasó el smoke test. **El orden es por fecha real** (`CreationDateTime` en DynamoDB,
+   fecha de los archivos en S3): el `run_id` de Databricks no crece con el tiempo.
 
 **Nombre en DynamoDB (verificado):** `AmazonDynamoDBSpec(table_name="spots_fs_online_<run_id>")` fija el nombre
 online, distinto del offline. Sin `table_name`, usa la base y el nombre de la tabla offline.
@@ -322,14 +325,15 @@ Lo que dice la documentación de Databricks
 * `publish_table()` crea la tabla en DynamoDB: no se crea a mano.
 * Requiere cluster clásico en modo **Dedicated**. La policy de jobs ya lo fija (`SINGLE_USER`,
   `infra/modules/dbx_compute_policies/main.tf`).
-* Para escribir, recomienda un **instance profile** con permiso sobre DynamoDB. Hoy no existe en `infra/`.
+* Para escribir, recomienda un **instance profile** con permiso sobre DynamoDB (`modules/dynamodb_publish_profile`).
+* Verificado en el paquete 0.18.3 (2026-11-04): crea la tabla con cobro `PAY_PER_REQUEST`, y la llave es `json.dumps([spot_id])`.
 * Modo merge sí; **overwrite no** está soportado para DynamoDB.
-* En DynamoDB la llave se guarda combinada en la columna `_feature_store_internal__primary_keys`. La
-  inferencia debe leerla con ese formato.
+* En DynamoDB la llave se guarda combinada en la columna `_feature_store_internal__primary_keys`, como
+  `"[spot_id]"`. **`spot_id` no existe como columna aparte** (verificado 2026-11-04): la inferencia lo saca de esa llave.
 
-**Embedding SBERT (P32):** se publica sin problema. Es `ArrayType`, el tipo soportado para embeddings;
-al publicar a un online store se convierte a **JSON**. El servicio lo lee como texto y lo convierte a
-vector ([Supported data types](https://docs.databricks.com/aws/en/machine-learning/feature-store/)).
+**Embedding SBERT (P32), corregido 2026-11-04:** se publica sin problema, pero **no como JSON**: `ArrayType` queda
+como lista nativa de números de DynamoDB (paquete 0.18.3 y smoke test de la corrida `669016108687066`). `boto3` la
+devuelve como `Decimal`, y el servicio debe convertirla a vector.
 
 ---
 

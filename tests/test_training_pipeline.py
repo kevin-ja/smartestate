@@ -5,9 +5,6 @@ Unit tests of the training job (smartestate_train), one section per task:
     T2 · modeling        GeoIndex and K-means (plan, Phase 3)
     T3 · materialization cleanup of old runs (plan, Phase 4)
 
-T3 is not written yet: its tests skip themselves (importorskip) until the module exists, and then
-they run as the contract of its API. Names follow the plan; rename here if the code differs.
-
 They run in Docker before each deploy (tests/Dockerfile, nothing installed on the laptop) and again on
 Databricks, in the job's unit_tests task, until CI exists (plan, Phase 2). See tests/README.md.
 
@@ -19,12 +16,14 @@ from __future__ import annotations
 import logging
 import math
 import time
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 from src.common import run_monitor, spark_probes
 from src.data_pipeline import feature_engineering as fe
@@ -328,19 +327,154 @@ def test_cluster_id_only_for_candidates(result, gold):
 
 
 # ── T3 · materialization (plan, Phase 4) ──────────────────────────────────────
-# Expected API (not written yet):
-#   src/ml_pipeline/materialization.py  to_drop(names, prefix, keep=3) -> names to delete, oldest first
 # Same rule on both sides (P31): spots_fs_online_<run_id> in DynamoDB and runs/<run_id>/ in S3.
-# publish_table and the GetItem smoke test (plan 4.3) need real AWS: they are runtime checks, not here.
+# publish_table and the real GetItem (plan 4.3) need AWS: they are runtime checks, not here.
 
 
-def test_cleanup_keeps_last_three_by_number():
+# The real run_ids and order of runs 1-5 (data_pipeline.md): the number does not follow the date.
+RUNS_BY_DATE = {"652070532920363": 1.0, "726424880789805": 2.0, "304335789918515": 3.0, "508031956134800": 4.0, "669016108687066": 5.0}
+
+
+def test_cleanup_orders_by_date_not_by_run_id():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
-    tables = ["spots_fs_online_9", "spots_fs_online_100", "spots_fs_online_25", "spots_fs_online_1000", "other"]
-    # As text, "9" would sort as the newest; run_id is a number.
-    assert materialization.to_drop(tables, "spots_fs_online_") == ["spots_fs_online_9"]
+    assert materialization.to_drop(RUNS_BY_DATE, "") == ["652070532920363", "726424880789805"]
+
+
+def test_cleanup_applies_the_prefix_and_ignores_other_tables():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    tables = {f"spots_fs_online_{run}": when for run, when in RUNS_BY_DATE.items()} | {"other": 0.0, "spots_fs_online_x": 0.0}
+    assert materialization.to_drop(tables, "spots_fs_online_") == ["spots_fs_online_652070532920363", "spots_fs_online_726424880789805"]
 
 
 def test_cleanup_ignores_folders_that_are_not_runs():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
-    assert materialization.to_drop(["9", "100", "25", "1000", "_probe"], "") == ["9"]
+    assert materialization.to_drop(RUNS_BY_DATE | {"_probe": 0.0}, "") == ["652070532920363", "726424880789805"]
+
+
+def test_cleanup_keeps_the_latest_champion_besides_the_last_three():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    # 726... is the latest champion. 652..., an older champion, gets no protection: the caller only passes the latest.
+    assert materialization.to_drop(RUNS_BY_DATE, "", protect={"726424880789805"}) == ["652070532920363"]
+
+
+def test_cleanup_with_a_recent_champion_keeps_only_three():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    assert materialization.to_drop(RUNS_BY_DATE, "", protect={"508031956134800"}) == ["652070532920363", "726424880789805"]
+
+
+class _Entry:
+    def __init__(self, path, modified=0):
+        self.path, self.name, self.modificationTime = path, path.rstrip("/").split("/")[-1] + ("/" if path.endswith("/") else ""), modified
+
+    def isDir(self):
+        return self.path.endswith("/")
+
+
+def _fake_dbutils(tree):
+    class Fs:
+        ls = staticmethod(lambda path: tree[path])
+
+    return type("DBUtils", (), {"fs": Fs})
+
+
+def test_run_folders_are_dated_by_their_newest_file_at_any_depth(monkeypatch):
+    storage = pytest.importorskip("src.ml_pipeline.storage")
+    tree = {
+        "runs": [_Entry("runs/100/"), _Entry("runs/_probe/")],
+        "runs/100/": [_Entry("runs/100/a.joblib", 5000), _Entry("runs/100/q.parquet/")],
+        "runs/100/q.parquet/": [_Entry("runs/100/q.parquet/part-0", 9000)],
+        "runs/_probe/": [],  # not a run: it must not stop the cleanup
+    }
+    monkeypatch.setattr(storage, "_dbutils", lambda spark: _fake_dbutils(tree))
+    assert storage.list_run_folders(None, "runs") == {"100": 9.0}
+
+
+def test_run_folder_without_a_date_aborts(monkeypatch):
+    storage = pytest.importorskip("src.ml_pipeline.storage")
+    tree = {"runs": [_Entry("runs/100/")], "runs/100/": [_Entry("runs/100/a.joblib", 0)]}
+    monkeypatch.setattr(storage, "_dbutils", lambda spark: _fake_dbutils(tree))
+    with pytest.raises(ValueError, match="No file with a date"):
+        storage.list_run_folders(None, "runs")
+
+
+def test_online_key_is_what_publish_table_writes():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    assert materialization.online_key(np.int64(501)) == {"_feature_store_internal__primary_keys": "[501]"}
+
+
+def _online_item(materialization, vector):
+    # As boto3 returns it (run 669016108687066): no spot_id attribute, and the vector as a list of Decimal.
+    return {
+        materialization.ONLINE_KEY_ATTRIBUTE: "[501]", "cluster_id": Decimal(2),
+        "nlp_vector": [Decimal(str(value)) for value in vector],
+    }
+
+
+def test_smoke_check_accepts_an_item_equal_to_offline():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    vector = [0.1] * materialization.NLP_DIM
+    expected = {"spot_id": 501, "cluster_id": 2, "nlp_vector": vector}
+    assert materialization.check_item(_online_item(materialization, vector), expected) == []
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        (lambda item: None, "not found"),
+        (lambda item: item | {"cluster_id": Decimal(3)}, "cluster_id"),
+        (lambda item: {k: v for k, v in item.items() if k != "cluster_id"}, "cluster_id"),
+        (lambda item: {k: v for k, v in item.items() if not k.startswith("_feature")}, "online None"),
+        (lambda item: item | {"_feature_store_internal__primary_keys": "[999]"}, "online [999]"),
+        (lambda item: item | {"nlp_vector": "not a list"}, "does not parse"),
+        (lambda item: {k: v for k, v in item.items() if k != "nlp_vector"}, "does not parse"),
+        (lambda item: item | {"nlp_vector": [Decimal("0.1"), Decimal("0.2")]}, "shape"),
+        (lambda item: item | {"nlp_vector": [Decimal("0.9")] * 768}, "differs"),
+    ],
+)
+def test_smoke_check_reports_each_problem(change, message):
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    vector = [0.1] * materialization.NLP_DIM
+    expected = {"spot_id": 501, "cluster_id": 2, "nlp_vector": vector}
+    errors = materialization.check_item(change(_online_item(materialization, vector)), expected)
+    assert any(message in error for error in errors)
+
+
+# ── validate_fs (new_arch.md §3.1) ────────────────────────────────────────────
+
+
+def _clustered_fs(result, gold):
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    return modeling.with_cluster_id(result.features, gold.filter("is_candidate").selectExpr("spot_id", "0 AS cluster_id"))
+
+
+def test_validate_fs_contract_matches_the_offline_schema():
+    validate_fs = pytest.importorskip("src.ml_pipeline.validate_fs")
+    assert validate_fs.EXPECTED_COLUMNS == tuple((f.name, f.dataType.simpleString()) for f in FS_OFFLINE_SCHEMA.fields)
+
+
+def test_validate_fs_passes_a_good_table(result, gold):
+    validate_fs = pytest.importorskip("src.ml_pipeline.validate_fs")
+    assert validate_fs.find_errors(_clustered_fs(result, gold)) == []
+
+
+@pytest.mark.parametrize(
+    "spoil, message",
+    [
+        (lambda fs: fs.withColumn("cluster_id", F.lit(None).cast("int")), "candidates without cluster_id"),
+        (lambda fs: fs.withColumn("cluster_id", F.lit(0)), "non-candidates with cluster_id"),
+        (lambda fs: fs.unionByName(fs), "spot_id repeated"),
+        (lambda fs: fs.filter("false"), "no rows"),
+        (lambda fs: fs.withColumn("latitude", F.lit(None).cast("double")), "candidates without latitude"),
+        (lambda fs: fs.drop("cluster_id"), "schema"),
+    ],
+)
+def test_validate_fs_reports_each_problem(result, gold, spoil, message):
+    validate_fs = pytest.importorskip("src.ml_pipeline.validate_fs")
+    errors = validate_fs.find_errors(spoil(_clustered_fs(result, gold)))
+    assert any(message in error for error in errors)
+
+
+def test_validate_fs_aborts(result):
+    validate_fs = pytest.importorskip("src.ml_pipeline.validate_fs")
+    with pytest.raises(validate_fs.FsValidationError, match="candidates without cluster_id"):
+        validate_fs.validate(result.features)  # as T1 leaves it: cluster_id still null
