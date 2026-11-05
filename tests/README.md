@@ -15,7 +15,7 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 
 ## Qué revisa
 
-Todo está en `test_training_pipeline.py`, una sección por paso del entrenamiento.
+`test_training_pipeline.py` tiene una sección por paso del entrenamiento. `test_inference.py` revisa el servicio, sin AWS.
 
 **T1 · datos → feature store**
 
@@ -69,6 +69,19 @@ Todo está en `test_training_pipeline.py`, una sección por paso del entrenamien
 | `online_key_is_what_publish_table_writes` | ¿La llave de lectura es la que escribe `publish_table`? |
 | `smoke_check_*` | ¿El smoke test acepta un ítem correcto y detecta cada problema? |
 | `validate_fs_*` | ¿La puerta de datos deja pasar una tabla buena y frena cada problema? |
+
+**Inferencia · API y cascada** (`test_inference.py`)
+
+| Test | Pregunta que responde |
+|---|---|
+| `radius_*`, `candidates_*` | ¿El radio se abre hasta el tope y deja a los más cercanos, sin el clic? |
+| `similarity_*`, `price_*`, `diversity_*` | ¿Cada parte del re-ranker sigue su fórmula, también con datos faltantes? |
+| `recommend_*` | ¿La cascada completa ordena, corta en N y responde sin candidatos? |
+| `get_clicked_*`, `get_candidates_*` | ¿Lee bien el formato de DynamoDB, parte en tandas y reintenta? |
+| `recommendations_*`, `health_*`, `nothing_answers_*` | ¿La API responde 200, 404, 422 y 503 cuando corresponde? |
+
+- **Lo que no se prueba aquí:** DynamoDB real y la latencia.
+- **Dónde corre:** `./ss/bin/python -m pytest tests/test_inference.py`. En Docker y Databricks no está FastAPI, así que los tests de la API se saltan.
 
 ## Cuándo y cómo correrlo
 

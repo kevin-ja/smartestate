@@ -29,8 +29,8 @@ class GeoIndex:
         self.modality_mask = np.asarray(modality_mask, dtype=np.uint8)
 
     def query(self, latitude: float, longitude: float, radius_km: float, sector: int, modality_mask: int) -> list[int]:
-        """spot_ids within the radius, of the same sector and sharing a modality. May include the click."""
+        """spot_ids within the radius, of the same sector and sharing a modality, nearest first. May include the click."""
         point = np.radians([[latitude, longitude]])
-        near = self.tree.query_radius(point, r=radius_km / EARTH_RADIUS_KM)[0]
+        near = self.tree.query_radius(point, r=radius_km / EARTH_RADIUS_KM, return_distance=True, sort_results=True)[0][0]
         keep = (self.sector[near] == sector) & ((self.modality_mask[near] & modality_mask) != 0)
         return self.spot_id[near[keep]].tolist()

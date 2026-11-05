@@ -159,3 +159,21 @@ module "dbx_compute_policies" {
 
   depends_on = [module.dbx_identities, module.dbx_pipeline_identity]
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inferencia · API en una instancia EC2 (inference_pipeline_design.md)
+#
+# No depende del workspace: sigue encendida, y cobrando, aunque el workspace se destruya.
+# Se levanta y se apaga con -target=module.inference_service.
+# ─────────────────────────────────────────────────────────────────────────────
+
+module "inference_service" {
+  source = "./modules/inference_service"
+
+  name            = "${var.project}-inference"
+  account_id      = var.account_id
+  region          = var.region
+  lake_bucket_arn = module.lake.bucket_arn
+  allowed_cidrs   = var.inference_allowed_cidrs
+  tags            = merge(var.tags, { Stage = "inference" })
+}

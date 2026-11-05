@@ -93,25 +93,6 @@
       ]
     },
     {
-      "Sid": "RedDatabricksLectura",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeVpcs",
-        "ec2:DescribeSubnets",
-        "ec2:DescribeRouteTables",
-        "ec2:DescribeSecurityGroups",
-        "ec2:DescribeInternetGateways",
-        "ec2:DescribeNatGateways",
-        "ec2:DescribeAddresses",
-        "ec2:DescribeVpcEndpoints",
-        "ec2:DescribeNetworkInterfaces"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": { "aws:RequestedRegion": "us-east-1" }
-      }
-    },
-    {
       "Sid": "RedDatabricksLimpieza",
       "Effect": "Allow",
       "Action": [
@@ -134,6 +115,201 @@
       "Condition": {
         "StringLike": { "aws:ResourceTag/Name": "databricks-WorkerEnvId*" }
       }
+    },
+    {
+      "Sid": "InferenciaEc2Lectura",
+      "Effect": "Allow",
+      "Action": "ec2:Describe*",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "us-east-1" }
+      }
+    },
+    {
+      "Sid": "InferenciaRedCrear",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:CreateSubnet",
+        "ec2:CreateInternetGateway",
+        "ec2:CreateRouteTable",
+        "ec2:CreateSecurityGroup",
+        "ec2:CreateVpcEndpoint",
+        "ec2:AllocateAddress",
+        "ec2:AssociateAddress",
+        "ec2:DisassociateAddress",
+        "ec2:DisassociateRouteTable"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "us-east-1" }
+      }
+    },
+    {
+      "Sid": "InferenciaRed",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AttachInternetGateway",
+        "ec2:CreateRoute",
+        "ec2:ReplaceRoute",
+        "ec2:DeleteRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:ModifyVpcAttribute",
+        "ec2:ModifySubnetAttribute",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:DeleteVpc"
+      ],
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:*",
+      "Condition": {
+        "StringEquals": { "aws:ResourceTag/Project": "smartestate" }
+      }
+    },
+    {
+      "Sid": "InferenciaLanzarInstancia",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": { "aws:RequestTag/Project": "smartestate" }
+      }
+    },
+    {
+      "Sid": "InferenciaLanzarRecursos",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:us-east-1::image/*",
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:subnet/*",
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:security-group/*",
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:network-interface/*",
+        "arn:aws:ec2:us-east-1:ACCOUNT_ID:volume/*"
+      ]
+    },
+    {
+      "Sid": "InferenciaInstancia",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "ec2:RebootInstances",
+        "ec2:TerminateInstances",
+        "ec2:ModifyInstanceAttribute",
+        "ec2:ModifyInstanceMetadataOptions"
+      ],
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": { "aws:ResourceTag/Project": "smartestate" }
+      }
+    },
+    {
+      "Sid": "InferenciaEtiquetarAlCrear",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": [
+            "CreateVpc",
+            "CreateSubnet",
+            "CreateInternetGateway",
+            "CreateRouteTable",
+            "CreateSecurityGroup",
+            "CreateVpcEndpoint",
+            "AllocateAddress",
+            "RunInstances"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "InferenciaEtiquetas",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:*",
+      "Condition": {
+        "StringEquals": { "aws:ResourceTag/Project": "smartestate" }
+      }
+    },
+    {
+      "Sid": "InferenciaEcrToken",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "InferenciaEcrRepositorio",
+      "Effect": "Allow",
+      "Action": "ecr:*",
+      "Resource": "arn:aws:ecr:us-east-1:ACCOUNT_ID:repository/smartestate-*"
+    },
+    {
+      "Sid": "InferenciaListar",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "dynamodb:ListTables"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InferenciaLogsGrupo",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsForResource",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/smartestate/*",
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/smartestate/*:*"
+      ]
+    },
+    {
+      "Sid": "InferenciaDynamoLectura",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:BatchGetItem"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/spots_fs_online_*"
+    },
+    {
+      "Sid": "SsmInstancia",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:us-east-1:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": { "ssm:resourceTag/Project": "smartestate" }
+      }
+    },
+    {
+      "Sid": "SsmDocumento",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:document/SSM-SessionManagerRunShell"
+    },
+    {
+      "Sid": "SsmMisSesiones",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:ResumeSession",
+        "ssm:TerminateSession"
+      ],
+      "Resource": "arn:aws:ssm:us-east-1:ACCOUNT_ID:session/${aws:username}-*"
     }
   ]
 }

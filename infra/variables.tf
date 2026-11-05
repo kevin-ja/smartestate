@@ -68,6 +68,12 @@ variable "daily_user_email" {
   }
 }
 
+variable "inference_allowed_cidrs" {
+  description = "IP que pueden llamar a la API de inferencia, ej. [\"203.0.113.10/32\"]. Vacío: nadie entra desde afuera."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Tags aplicados a todos los recursos."
   type        = map(string)

@@ -95,7 +95,7 @@ Sin tablas intermedias (`new_arch.md` §3.1): **una sola task** que encadena las
 
 | Paso | Qué | Archivos |
 |---|---|---|
-| 3.1 | **`GeoIndex`** (clase de `new_arch.md` §4.1) en un paquete compartido, instalable en Databricks y en ECS | `src/common/geo_index.py` |
+| 3.1 | **`GeoIndex`** (clase de `new_arch.md` §4.1) en un paquete compartido, instalable en Databricks y en EC2 | `src/common/geo_index.py` |
 | 3.2 | Leer candidatos (`is_candidate = True`) ordenados por `spot_id` → `toPandas` | `src/ml_pipeline/modeling.py` |
 | 3.3 | K-means por sector (según 0.4), `k` por silhouette en 5–8, con `random_state` fijo | mismo |
 | 3.4 | Construir el GeoIndex; `joblib.dump` → `runs/<run_id>/geo_index.joblib` + K-means | mismo |
@@ -171,4 +171,4 @@ Sin tablas intermedias (`new_arch.md` §3.1): **una sola task** que encadena las
 | `publish_table` falla por permisos o el modo del cluster | Fase 1 (smoke test de DynamoDB) antes de la Fase 4 |
 | SBERT lento o sin internet en el cluster | Sin internet: resuelto, el modelo se lee de `models/sbert/`. Lentitud: medir en 2.4 |
 | `overwrite` rompe la PK del feature store | Se verifica en 0.7 antes de 2.5 |
-| El GeoIndex no carga en ECS | Round-trip de 3.4 en un proceso limpio |
+| El GeoIndex no carga en EC2 | Round-trip de 3.4 en un proceso limpio |
