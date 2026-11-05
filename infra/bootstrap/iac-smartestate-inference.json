@@ -15,6 +15,12 @@
       ]
     },
     {
+      "Sid": "ListarProveedoresOidc",
+      "Effect": "Allow",
+      "Action": "iam:ListOpenIDConnectProviders",
+      "Resource": "*"
+    },
+    {
       "Sid": "ProveedorOidcDeGithub",
       "Effect": "Allow",
       "Action": [

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Crea el bucket privado del estado de Terraform. Va fuera de Terraform: debe existir antes de migrar el estado.
-# Se puede repetir sin riesgo. Requiere la política iac-smartestate-cicd.
+# Se puede repetir sin riesgo. Requiere la política iac-smartestate-inference.
 #
 # Uso (desde la raíz del repo): bash infra/bootstrap/create-tfstate-bucket.sh
 set -euo pipefail

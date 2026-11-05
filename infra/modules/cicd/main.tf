@@ -287,7 +287,7 @@ resource "aws_iam_role" "terraform" {
 
 # Las mismas políticas con las que Kevin corre Terraform: no hay una segunda lista que mantener.
 resource "aws_iam_role_policy_attachment" "terraform" {
-  for_each = toset(["iac-smartestate-data", "iac-smartestate-cicd"])
+  for_each = toset(["iac-smartestate-data", "iac-smartestate-inference"])
 
   role       = aws_iam_role.terraform.name
   policy_arn = "arn:aws:iam::${var.account_id}:policy/${each.key}"

@@ -95,23 +95,15 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 
 **Una sola vez, en este orden.** Desde el paso 3, `infra/` exige el backend: `start_up.sh`, `shut_down.sh` y `shut_down_inference_infra.sh` fallan hasta terminar el paso 3.
 
-**1. Revisar si la cuenta ya tiene el proveedor OIDC de GitHub.** Con el administrador:
+**1. Crear la política nueva y adjuntarla a `smartestate-data`.** Es el único paso en la consola, con un usuario administrador: ningún perfil de la CLI administra IAM. En IAM → Policies → Create policy, pegar `infra/bootstrap/iac-smartestate-inference.json` con el ID de la cuenta en lugar de `ACCOUNT_ID` y llamarla `iac-smartestate-inference`. Luego, en Users → `smartestate-data` → Add permissions, adjuntarla.
+
+**2. Revisar si la cuenta ya tiene el proveedor OIDC de GitHub:**
 
 ```bash
-aws iam list-open-id-connect-providers --profile <perfil-admin>
+aws iam list-open-id-connect-providers --profile smartestate
 ```
 
 Si aparece `token.actions.githubusercontent.com`, agregar `TF_VAR_create_github_oidc_provider=false` a `.env`.
-
-**2. Crear la política nueva y adjuntarla a `smartestate-data`.** Con el administrador:
-
-```bash
-sed 's/ACCOUNT_ID/<account_id>/g' infra/bootstrap/iac-smartestate-cicd.json > /tmp/iac-cicd.json
-aws iam create-policy --profile <perfil-admin> --policy-name iac-smartestate-cicd \
-  --policy-document file:///tmp/iac-cicd.json
-aws iam attach-user-policy --profile <perfil-admin> --user-name smartestate-data \
-  --policy-arn arn:aws:iam::<account_id>:policy/iac-smartestate-cicd
-```
 
 **3. Crear el bucket de estado y migrar.** Responder `yes` a la copia del estado:
 
