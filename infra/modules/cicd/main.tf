@@ -114,7 +114,7 @@ data "aws_iam_policy_document" "deploy_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values   = ["${var.github_subject_prefix}:ref:refs/heads/main"]
     }
   }
 }
@@ -269,8 +269,8 @@ data "aws_iam_policy_document" "terraform_assume_role" {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
       values = [
-        "repo:${var.github_repository}:environment:terraform-plan",
-        "repo:${var.github_repository}:environment:production",
+        "${var.github_subject_prefix}:environment:terraform-plan",
+        "${var.github_subject_prefix}:environment:production",
       ]
     }
   }

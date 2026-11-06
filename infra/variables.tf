@@ -74,10 +74,10 @@ variable "inference_allowed_cidrs" {
   default     = []
 }
 
-variable "github_repository" {
-  description = "Repositorio cuyo CI/CD puede entrar a AWS."
+variable "github_subject_prefix" {
+  description = "Identidad OIDC del repo cuyo CI/CD puede entrar a AWS. Lleva los ID porque el repo usa use_immutable_subject; se consulta con: gh api repos/<dueño>/<repo>/actions/oidc/customization/sub"
   type        = string
-  default     = "kevin-ja/smartestate"
+  default     = "repo:kevin-ja@176353864/smartestate@1389932863"
 }
 
 variable "create_github_oidc_provider" {

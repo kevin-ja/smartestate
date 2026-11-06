@@ -184,12 +184,12 @@ module "inference_service" {
 module "cicd" {
   source = "./modules/cicd"
 
-  project              = var.project
-  account_id           = var.account_id
-  region               = var.region
-  github_repository    = var.github_repository
-  create_oidc_provider = var.create_github_oidc_provider
-  lake_bucket_arn      = module.lake.bucket_arn
-  ecr_repository_name  = "${var.project}-inference"
-  tags                 = merge(var.tags, { Stage = "cicd" })
+  project               = var.project
+  account_id            = var.account_id
+  region                = var.region
+  github_subject_prefix = var.github_subject_prefix
+  create_oidc_provider  = var.create_github_oidc_provider
+  lake_bucket_arn       = module.lake.bucket_arn
+  ecr_repository_name   = "${var.project}-inference"
+  tags                  = merge(var.tags, { Stage = "cicd" })
 }

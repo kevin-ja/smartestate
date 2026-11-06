@@ -11,8 +11,8 @@ variable "region" {
   type = string
 }
 
-variable "github_repository" {
-  description = "Repositorio que puede entrar a AWS, como dueño/nombre."
+variable "github_subject_prefix" {
+  description = "Inicio de la identidad OIDC que GitHub envía para el repo: repo:dueño@id/nombre@id."
   type        = string
 }
 

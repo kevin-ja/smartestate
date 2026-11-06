@@ -34,6 +34,7 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
   | Ansible por SSM (`aws_ssm`) | Despliega en EC2 sin abrir el puerto 22; usa un bucket de S3 |
   | Terraform | Aprovisiona la infraestructura |
   | Backend S3 de Terraform | Guarda el estado fuera de la laptop |
+- **Identidad OIDC con ID (Kevin, 2026-11-05):** el repo usa `use_immutable_subject`, así que GitHub envía `repo:dueño@id/nombre@id`. Los roles confían en ese formato: un repo recreado con el mismo nombre no heredaría el acceso.
 - **Despliegue automático (Kevin, 2026-11-05):** push a `main` → tests unitarios y de integración → si todos pasan, se despliega y se revisa `/health`. Si alguno falla, no se despliega y se avisa.
 - **`run_id` en producción (Kevin, 2026-11-05):** vive en un archivo de un bucket S3 privado, porque MLflow se apaga con el workspace. El CD usa ese valor por defecto y lo actualiza tras cada despliegue exitoso. Para un rollback, se indica otro `run_id` al lanzar el workflow. La limpieza de T3 debe respetar ese `run_id`.
 - **Confidencialidad del CI/CD (Kevin, 2026-11-05):** el repo es público, así que los logs solo muestran el resumen del plan. El plan completo, el estado de Terraform y lo de Ansible van en buckets S3 privados y separados.
