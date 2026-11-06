@@ -17,7 +17,7 @@ terraform {
   }
 
   # Estado en un bucket privado, para que lo use también GitHub Actions. El nombre va aparte porque lleva el ID
-  # de la cuenta y el repo es público: ver backend.hcl.example.
+  # de la cuenta y el repo es público: lo genera infra/state_backend/ en backend.hcl.
   backend "s3" {}
 }
 

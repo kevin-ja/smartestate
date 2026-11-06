@@ -91,6 +91,25 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 7. Medición de latencia dentro de EC2.
 8. CI/CD: código escrito y validado localmente; falta la puesta en marcha y la primera corrida en GitHub.
 
+## Comandos
+
+El `Makefile` de la raíz agrupa la operación (`make help`). Desde cero, tras crear la primera política IAM:
+
+```bash
+make check-prerequisites
+make state-backend
+make init
+make apply-cicd
+make apply-inference
+make set-production-run RUN_ID=<run_id>
+make github-setup
+make check
+```
+
+`make check-prerequisites` y `make check` solo leen. Las políticas de `smartestate-data` se comprueban por lo que autorizan, porque ese usuario no puede listarlas.
+
+Lo que sigue manual, a propósito: responder `yes` en cada `apply`, crear la primera política IAM y llenar `.env`. `make destroy-inference` llama a `shut_down_inference_infra.sh`, que es local y no se versiona.
+
 ## Puesta en marcha del CI/CD
 
 **Una sola vez, en este orden.** Desde el paso 3, `infra/` exige el backend: `start_up.sh`, `shut_down.sh` y `shut_down_inference_infra.sh` fallan hasta terminar el paso 3.
@@ -105,14 +124,15 @@ aws iam list-open-id-connect-providers --profile smartestate
 
 Si aparece `token.actions.githubusercontent.com`, agregar `TF_VAR_create_github_oidc_provider=false` a `.env`.
 
-**3. Crear el bucket de estado y migrar.** Responder `yes` a la copia del estado:
+**3. Crear el bucket de estado con Terraform y conectar `infra/`.** `infra/state_backend/` es un stack aparte, con estado local propio: el bucket debe existir antes de que `infra/` guarde su estado en él.
 
 ```bash
-bash infra/bootstrap/create-tfstate-bucket.sh
-cp infra/terraform.tfstate ~/terraform.tfstate.backup
-cp infra/backend.hcl.example infra/backend.hcl     # poner el ID de la cuenta
+(cd infra/state_backend && terraform init && terraform apply)
+terraform -chdir=infra/state_backend output -raw backend_config > infra/backend.hcl
 (cd infra && AWS_PROFILE=smartestate terraform init -migrate-state -backend-config=backend.hcl)
 ```
+
+Si ya hay estado local, responder `yes` a la copia: sin él, Terraform no sabría qué ya existe e intentaría crearlo de nuevo. Desde cero, no hay nada que copiar y usa `terraform init -backend-config=backend.hcl`.
 
 **4. Crear los roles y buckets, y levantar la inferencia.** El primer `apply` agrega 15 recursos (14 si el proveedor ya existía); el segundo, 17 si la infra estaba apagada. La EC2 cobra desde ese momento:
 

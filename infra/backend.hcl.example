@@ -1,7 +1,0 @@
-# Copiar a backend.hcl y poner el ID de la cuenta. backend.hcl no se versiona.
-#   cd infra && AWS_PROFILE=smartestate terraform init -migrate-state -backend-config=backend.hcl
-bucket       = "smartestate-tfstate-<account_id>"
-key          = "infra/terraform.tfstate"
-region       = "us-east-1"
-encrypt      = true
-use_lockfile = true
