@@ -1,0 +1,4 @@
+---
+collections:
+  - name: amazon.aws # trae la conexión aws_ssm
+    version: 12.1.0

@@ -61,3 +61,17 @@ output "databricks_jobs_policy_id" {
   description = "policy_id de los job clusters (Asset Bundles). Cambia en cada recreación del workspace."
   value       = module.dbx_compute_policies.jobs_policy_id
 }
+
+output "inference_public_ip" {
+  description = "Dirección fija de la API de inferencia."
+  value       = module.inference_service.public_ip
+}
+
+output "inference_instance_id" {
+  description = "Para abrir sesión: aws ssm start-session --target <id>."
+  value       = module.inference_service.instance_id
+}
+
+output "inference_ecr_repository_url" {
+  value = module.inference_service.ecr_repository_url
+}

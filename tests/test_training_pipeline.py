@@ -362,6 +362,19 @@ def test_cleanup_with_a_recent_champion_keeps_only_three():
     assert materialization.to_drop(RUNS_BY_DATE, "", protect={"508031956134800"}) == ["652070532920363", "726424880789805"]
 
 
+def test_production_run_id_reads_the_pointer():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    pointer = '{"run_id": "726424880789805", "image_tag": "abc"}'
+    assert materialization.production_run_id(pointer) == "726424880789805"
+
+
+@pytest.mark.parametrize("pointer", ['{"run_id": "../other"}', '{"image_tag": "abc"}', "not json"])
+def test_production_run_id_aborts_on_a_bad_pointer(pointer):
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    with pytest.raises((ValueError, KeyError)):
+        materialization.production_run_id(pointer)
+
+
 class _Entry:
     def __init__(self, path, modified=0):
         self.path, self.name, self.modificationTime = path, path.rstrip("/").split("/")[-1] + ("/" if path.endswith("/") else ""), modified

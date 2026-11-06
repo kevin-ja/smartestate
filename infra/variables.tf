@@ -68,6 +68,24 @@ variable "daily_user_email" {
   }
 }
 
+variable "inference_allowed_cidrs" {
+  description = "IP que pueden llamar a la API de inferencia, ej. [\"203.0.113.10/32\"]. Vacío: nadie entra desde afuera."
+  type        = list(string)
+  default     = []
+}
+
+variable "github_repository" {
+  description = "Repositorio cuyo CI/CD puede entrar a AWS."
+  type        = string
+  default     = "kevin-ja/smartestate"
+}
+
+variable "create_github_oidc_provider" {
+  description = "false si la cuenta ya tiene el proveedor OIDC de GitHub: AWS admite uno solo por URL."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Tags aplicados a todos los recursos."
   type        = map(string)

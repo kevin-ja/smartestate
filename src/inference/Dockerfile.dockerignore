@@ -1,0 +1,5 @@
+# Contexto del build de src/inference/Dockerfile: solo src/ (sin ss/, data/, .env ni infra/).
+*
+!src/
+**/__pycache__
+**/*.pyc

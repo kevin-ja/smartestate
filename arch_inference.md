@@ -6,7 +6,7 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
 
 ```
 ════════════════════════════════════════════════════════════════════════════════
- ETAPA 0 · ARRANQUE DEL CONTENEDOR                      (una vez, ECS Fargate)
+ ETAPA 0 · ARRANQUE DEL CONTENEDOR                              (una vez, EC2)
 ════════════════════════════════════════════════════════════════════════════════
  ENTRA   run_id  (lo pone el CD como variable de entorno: es la corrida de
                   MLflow con el tag `champion=true`)
@@ -14,10 +14,10 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
          2. Lee de S3  runs/<run_id>/reranker_params.json  → w_tab, w_nlp,
                                                              f_bounds, δ
             (el radio r, su tope y el N por defecto no van en el JSON:
-             están pendientes, new_arch.md §3.3)
-         3. Crea un cliente boto3 de DynamoDB (credenciales del IAM task role)
+             viven en el servicio, new_arch.md §4.1)
+         3. Crea un cliente boto3 de DynamoDB (credenciales del IAM instance profile)
          4. Arma el nombre de la tabla: spots_fs_online_<run_id>
- SALE    GeoIndex + parámetros en RAM  →  /health responde OK (para el ALB)
+ SALE    GeoIndex + parámetros en RAM  →  /health responde OK
 ════════════════════════════════════════════════════════════════════════════════
 
                                (servicio listo)
@@ -133,6 +133,6 @@ etapa 5-7                                           3A → 3B → 3C
 4. 3A calcula qué tan parecidos son, 3B baja a los más caros y 3C evita que el top 10 sean todos del mismo cluster.
 5. La respuesta devuelve 10 `spot_id`.
 
-Todavía falta calibrar varios parámetros: el radio `r` y su tope, `w_tab`/`w_nlp`, la cota de `f(r)`, `δ`, `k` y el N por defecto.
+Valores iniciales de los filtros: radio 5 → 10 → 15 km, mínimo de 50 candidatos, máximo de 300 y N = 10. Todavía falta calibrarlos, junto con `w_tab`/`w_nlp`, la cota de `f(r)`, `δ` y `k`.
 
 En resumen: en cada clic se hacen 2 lecturas a DynamoDB, una búsqueda en RAM y tres fórmulas con numpy. No se procesan datos ni se llama a ningún modelo.

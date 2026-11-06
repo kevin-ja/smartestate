@@ -57,6 +57,15 @@ def list_run_folders(spark: SparkSession, runs_root: str) -> dict[str, float]:
     return folders
 
 
+def read_runs_file(spark: SparkSession, runs_root: str, name: str) -> str | None:
+    """Text of a file directly under runs/. None only if it does not exist; any other failure raises."""
+    dbutils = _dbutils(spark)
+    for entry in dbutils.fs.ls(runs_root):
+        if entry.name == name:
+            return dbutils.fs.head(entry.path)
+    return None
+
+
 def delete_run_folder(spark: SparkSession, runs_root: str, folder: str) -> None:
     _dbutils(spark).fs.rm(f"{runs_root.rstrip('/')}/{folder}", recurse=True)
 

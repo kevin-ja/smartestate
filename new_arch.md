@@ -270,12 +270,12 @@ inferencia leen la columna ya codificada, así que no hay dos codificaciones que
 
 **GeoIndex:** se construye con los candidatos de Spots FS offline (`is_candidate = True`) ordenados por
 `spot_id`. Copia las columnas sin transformarlas. La clase vive en un paquete propio que instalan
-Databricks y la imagen de ECS (joblib la necesita para cargar el objeto). Detalle: §4.1.
+Databricks y la imagen de inferencia en EC2 (joblib la necesita para cargar el objeto). Detalle: §4.1.
 
 **Parámetros del re-ranker** (`w_tab`, `w_nlp`, `f_bounds`, `δ`):
 
 ```
-reranker_params.yml (repo) ──bundle──▶ modeling pipeline ──┬──▶ runs/<run_id>/reranker_params.json  (lo lee ECS)
+reranker_params.yml (repo) ──bundle──▶ modeling pipeline ──┬──▶ runs/<run_id>/reranker_params.json  (lo lee EC2)
                                                            └──▶ MLflow log_params                   (comparar corridas)
 ```
 
@@ -289,7 +289,7 @@ reranker_params.yml (repo) ──bundle──▶ modeling pipeline ──┬─�
 | `δ` (inicial `0.85`) | 3C · Diversidad | Castiga repetir `cluster_id` en el top N | `score · δ^n`, `n` = cuántos de ese cluster ya entraron. Menor `δ`, más variado |
 
 No van en el JSON: `k` del K-means (es del entrenamiento) ni el radio, el mínimo y el tope de los
-Filtros 1 y 2 (pendientes).
+Filtros 1 y 2 (viven en el servicio: `src/inference/recommender.py`, §4.1).
 
 **Archivos:** `runs/<run_id>/` en S3 (`geo_index.joblib`, `reranker_params.json` y el K-means), registrados en MLflow.
 
@@ -304,7 +304,7 @@ Es la integración entre los dos feature stores. Corre después del modeling pip
    `table_name`,
    [API](https://api-docs.databricks.com/python/feature-engineering/latest/ml_features.online_store_spec.html)).
 2. **Limpiar (P31, Kevin 2026-11-04):** en DynamoDB (`spots_fs_online_*`) y en S3 (`runs/<run_id>/`) quedan las últimas 3
-   corridas **más el último champion**, para no borrar la que está en producción. Los champions anteriores se borran.
+   corridas, **el último champion y la corrida en producción** (`runs/production.json`, que escribe el CD). Los champions anteriores se borran.
    Solo se limpia si la tabla nueva pasó el smoke test. **El orden es por fecha real** (`CreationDateTime` en DynamoDB,
    fecha de los archivos en S3): el `run_id` de Databricks no crece con el tiempo.
 
@@ -341,9 +341,10 @@ devuelve como `Decimal`, y el servicio debe convertirla a vector.
 
 **Corre en AWS, en producción.** Tolerancia de respuesta: **hasta 1 segundo** por clic.
 
-**Cómo se sirve:** un contenedor propio en **ECS Fargate**, siempre encendido. Al arrancar carga en RAM
+**Cómo se sirve:** un contenedor propio en **una instancia EC2**, siempre encendido. Al arrancar carga en RAM
 el GeoIndex y los parámetros del re-ranker. En cada clic lee las features del feature store online (DynamoDB). Lambda se descarta
-porque cada arranque en frío recargaría el GeoIndex desde S3.
+porque cada arranque en frío recargaría el GeoIndex desde S3. EC2 reemplaza a Fargate (2026-11-05, Kevin): prefiere administrar
+la máquina (parches, Docker, reinicios y despliegues). Con una sola instancia, si se cae, el servicio queda caído hasta que se recupere.
 
 **Qué corrida carga (P20):** la resuelve el **CD**, no el servicio.
 
@@ -438,8 +439,8 @@ relevancia después de toda la cascada. Contrato: ver API.
 
 | Endpoint | Para qué |
 |---|---|
-| `GET /recommendations/{spot_id}?n=10` | Top N de `spot_id` parecidos. `n` es opcional, con un tope |
-| `GET /health` | OK solo si el GeoIndex y los parámetros ya están cargados (para el ALB) |
+| `GET /recommendations/{spot_id}?n=10` | Top N de `spot_id` parecidos. `n` es opcional: 10 por defecto, hasta 50. Top N es un máximo: puede devolver menos o una lista vacía |
+| `GET /health` | OK solo si el GeoIndex y los parámetros ya están cargados (para verificar el arranque) |
 | `GET /version` | El `run_id` cargado y los parámetros del re-ranker (para verificar despliegues y rollbacks) |
 
 ```
@@ -451,32 +452,31 @@ GET /recommendations/20381?n=10
 **Por qué `GET`:** es una consulta sin efectos secundarios, con un solo dato de entrada. Se puede
 cachear y probar desde el navegador.
 
-**Fargate y DynamoDB:** DynamoDB no vive en Fargate. Es un servicio aparte que el contenedor consulta
+**EC2 y DynamoDB:** DynamoDB no vive en EC2. Es un servicio aparte que el contenedor consulta
 por la red.
 
 ```
 Tu VPC                                      AWS (fuera de tu VPC)
 ┌──────────────────────────────┐            ┌──────────────────────────┐
-│ Fargate                      │            │ DynamoDB                 │
+│ EC2                          │            │ DynamoDB                 │
 │  └─ Docker: FastAPI          │ ── HTTPS ─▶│  spots_fs_online_<run_id>│
 │      + GeoIndex en RAM       │  (por VPC  │  (gestionado por AWS)    │
 └──────────────────────────────┘  endpoint) └──────────────────────────┘
 ```
 
-| | Fargate | DynamoDB |
+| | EC2 | DynamoDB |
 |---|---|---|
 | Qué es | Donde corre tu código (el contenedor) | Una base de datos que AWS opera por ti |
-| Quién la administra | Tú defines la imagen; AWS pone la máquina | AWS completo: servidores, réplicas, backups |
+| Quién la administra | Tú: la máquina, sus parches, Docker y la imagen | AWS completo: servidores, réplicas, backups |
 | Qué contiene | FastAPI y el GeoIndex en RAM | Las features de todos los spots |
 
 **Por eso funciona bien:**
 
-* Si se cae una tarea de Fargate, los datos no se pierden: están en DynamoDB.
-* Las 2 tareas leen la misma tabla.
+* Si se cae la instancia EC2, los datos no se pierden: están en DynamoDB.
 * DynamoDB ya replica los datos en 3 zonas de disponibilidad. No hay que montar nada para su
   tolerancia a fallos.
 
-**En una línea:** Fargate corre tu servidor y DynamoDB es un servicio aparte al que tu servidor
+**En una línea:** EC2 corre tu servidor y DynamoDB es un servicio aparte al que tu servidor
 consulta por la red.
 
 **Cómo se conecta:** con **boto3**. DynamoDB es una API de AWS sobre HTTPS: no hay contraseñas.
@@ -484,9 +484,9 @@ consulta por la red.
 | Pieza | Qué es | Dónde se define |
 |---|---|---|
 | SDK | `boto3` dentro de la imagen | `requirements` de la imagen |
-| Permisos | **IAM task role**: ECS entrega credenciales temporales y boto3 las toma solo. Mínimo: `GetItem` y `BatchGetItem` sobre `spots_fs_online_*` | Terraform |
-| Red | Subnet privada + **VPC gateway endpoint** de DynamoDB (sin NAT, sin costo) | Terraform |
-| Qué tabla | El nombre se arma con el `run_id`, que llega como variable de entorno | Task definition |
+| Permisos | **IAM instance profile**: EC2 entrega credenciales temporales y boto3 las toma solo. Mínimo: `GetItem` y `BatchGetItem` sobre `spots_fs_online_*` | Terraform |
+| Red | VPC propia con subnet pública, sin NAT ni ALB (2026-11-05, Kevin). **VPC gateway endpoints** de DynamoDB y S3 (sin costo). El security group limita el acceso a las IP autorizadas | Terraform |
+| Qué tabla | El nombre se arma con el `run_id`, que llega como variable de entorno | Arranque del contenedor en EC2 |
 
 El cliente de boto3 se crea **una vez** al arrancar y se reutiliza en cada clic. Nunca hay llaves en la
 imagen.
@@ -528,7 +528,9 @@ geo_index.query(lat, lon, r, sector, mask) ──▶ [20365, 10322]   ← un art
 
 #### Filtro 1: zona geográfica
 
-Dentro de `query`: `tree.query_radius(lat, lon, r)` devuelve las posiciones de los candidatos a ≤ `r` km.
+Dentro de `query`: `tree.query_radius(lat, lon, r)` devuelve las posiciones de los candidatos a ≤ `r` km, del más cercano al más lejano.
+
+**Radio (2026-11-05, Kevin; valores iniciales):** empieza en 5 km y abre a 10 y 15 km hasta juntar **50 candidatos** después de los Filtros 1 y 2. El tope es **15 km**: si no se junta el mínimo, se usa lo que haya. Se leen como máximo **300**, los más cercanos.
 
 #### Filtro 2: tipo de inmueble y modalidad
 
@@ -556,7 +558,7 @@ inmueble** y **comparte modalidad** con el spot clickeado.
 | **3B · Precio `f(r)`** | Quién va primero entre parecidos | Precio por m² | No: es una fórmula |
 | **3C · Diversidad** | Que el top N no sean clones | `cluster_id` | Sí: el K-means, pero corre en el entrenamiento |
 
-**Dónde corre:** las tres son código Python con numpy dentro del servicio de inferencia (ECS),
+**Dónde corre:** las tres son código Python con numpy dentro del servicio de inferencia (EC2),
 sobre los candidatos que trajo el `BatchGetItem`. Ninguna llama a un modelo en el clic.
 
 #### 3A · Similitud
@@ -588,6 +590,7 @@ r = precio_m²(B) / precio_m²(A)        score = sim · f(r)
 
 * `r > 1` (más caro): `f(r) < 1`, penaliza. `r ≈ 1`: neutro. `r < 1` (más barato): bonus leve que se
   aplana.
+* **Forma (2026-11-05, Kevin):** recta entre `f(0.5) = 1.1`, `f(1) = 1` y `f(2) = 0.7`; plana fuera de ese rango.
 * `f(r)` está acotado (inicial `[0.7, 1.1]`) para que el precio no voltee el orden entre un candidato
   relevante y uno que no lo es. El EDA muestra que esa cota se satura: se calibra (Next steps 2).
 * **Qué precio:** el de la modalidad compartida con el clic (`rent_price_sqm` o `sale_price_sqm`).
@@ -646,8 +649,7 @@ Nivel 3 (3A → 3B → 3C) ──▶ top N
 * **La proyección** pide solo esas siete columnas y no la fila entera. Ahorra ancho de banda y unidades
   de lectura.
 * **`BatchGetItem` admite hasta 100 ids por llamada.** Si hay más candidatos, se parte en tandas que
-  corren en paralelo. Conviene fijar un tope de candidatos, que es parte del pendiente "Radio del
-  Filtro 1 y su tope", para que la latencia quede acotada.
+  corren en paralelo. El tope de 300 candidatos (§4.1) deja como máximo 3 tandas y acota la latencia.
 
 **En una línea:** el `GetItem` del clickeado trae todo de una vez, y un `BatchGetItem` con proyección de
 siete columnas arma la tabla del Nivel 3.
@@ -681,7 +683,7 @@ Esto es lo que define hoy este documento, separado en las dos etapas.
 | Paso | Tecnología |
 |---|---|
 | Contenedor | Docker (imagen con FastAPI + el paquete del proyecto) |
-| Servicio | Contenedor en ECS Fargate, con la imagen en ECR |
+| Servicio | Contenedor en una instancia EC2, con la imagen en ECR |
 | API | FastAPI |
 | Feature store online | DynamoDB (`GetItem`, `BatchGetItem`) |
 | Artefactos | S3: `geo_index.joblib`, `reranker_params.json` |
@@ -711,7 +713,7 @@ Esto es lo que define hoy este documento, separado en las dos etapas.
 
 1. Pesos `w_tab` / `w_nlp` del re-ranker.
 2. Cota de `f(r)`: `[0.7, 1.1]` se satura según el EDA.
-3. Radio del Filtro 1 (5 → 10 → 15 km) y su tope.
-4. N por defecto.
+3. ~~Radio del Filtro 1 (5 → 10 → 15 km) y su tope.~~ → cerrado 2026-11-05, §4.1. Tope de 15 km, mínimo de 50 y máximo de 300 candidatos; valores iniciales.
+4. ~~N por defecto.~~ → cerrado 2026-11-05: 10, con `n` hasta 50.
 5. Esquema del feature store: columnas exactas. ~~Modelo SBERT concreto~~ → cerrado 2026-10-19: `paraphrase-multilingual-mpnet-base-v2` (768 dim).
 6. K-means: `δ` (inicial 0.85) y `k` (5–8, por codo o silhouette), con `random_state` fijo.

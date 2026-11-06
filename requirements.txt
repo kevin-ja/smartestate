@@ -18,3 +18,11 @@ pyyaml==6.0.3
 # T3 - materialization (mismas versiones en bundles/data/resources/data_pipeline_job.yml)
 databricks-feature-engineering==0.18.3
 boto3==1.43.124
+
+# Inferencia - API
+fastapi==0.162.0
+uvicorn==0.54.0
+
+# Tests de la API
+pytest==9.1.1
+httpx==0.28.1

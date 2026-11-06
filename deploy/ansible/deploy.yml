@@ -1,0 +1,113 @@
+---
+# Despliega la API en la EC2 por SSM, sin puerto 22 (inference_pipeline_design.md). Se puede repetir.
+#
+# Desde deploy/ansible/:
+#   ansible-playbook -i "<instance_id>," deploy.yml \
+#     -e image=<registry>/smartestate-inference:<tag> -e run_id=<run_id> \
+#     -e runs_root=s3://<lake>/runs -e ansible_bucket=<bucket>
+- name: Desplegar la API de inferencia
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    ansible_connection: amazon.aws.aws_ssm
+    ansible_aws_ssm_region: "{{ region }}"
+    ansible_aws_ssm_bucket_name: "{{ ansible_bucket }}"
+    region: us-east-1
+    container: inference
+    api_port: 8000
+    log_group: /smartestate/inference
+    registry: "{{ image.split('/')[0] }}"
+
+  tasks:
+    - name: Instalar Docker
+      ansible.builtin.dnf:
+        name: docker
+        state: present
+
+    - name: Encender Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Entrar a ECR
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail &&
+          aws ecr get-login-password --region {{ region | quote }}
+          | docker login --username AWS --password-stdin {{ registry | quote }}
+        executable: /bin/bash
+      changed_when: false
+      no_log: true
+
+    - name: Bajar la imagen
+      ansible.builtin.command:
+        argv: [docker, pull, "{{ image }}"]
+      register: pull
+      changed_when: "'Downloaded newer image' in pull.stdout"
+
+    - name: Quitar el contenedor anterior
+      ansible.builtin.command:
+        argv: [docker, rm, -f, "{{ container }}"]
+      register: removed
+      changed_when: removed.rc == 0
+      failed_when: false
+
+    - name: Levantar el contenedor nuevo
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - -d
+          - --name
+          - "{{ container }}"
+          - --restart
+          - always
+          - -p
+          - "{{ api_port }}:{{ api_port }}"
+          - --log-driver
+          - awslogs
+          - --log-opt
+          - "awslogs-group={{ log_group }}"
+          - --log-opt
+          - "awslogs-region={{ region }}"
+          - -e
+          - "RUN_ID={{ run_id }}"
+          - -e
+          - "RUNS_ROOT={{ runs_root }}"
+          - -e
+          - "AWS_REGION={{ region }}"
+          - "{{ image }}"
+      changed_when: true
+
+    - name: Revisar la API
+      block:
+        - name: Esperar a /health
+          ansible.builtin.uri:
+            url: "http://localhost:{{ api_port }}/health"
+            status_code: 200
+          register: health
+          retries: 30
+          delay: 2
+          until: health.status == 200
+
+        - name: Confirmar que cargó la corrida esperada
+          ansible.builtin.uri:
+            url: "http://localhost:{{ api_port }}/version"
+            return_content: true
+          register: version
+          failed_when: version.json.run_id != (run_id | string)
+
+      rescue:
+        - name: Leer los logs del contenedor
+          ansible.builtin.command:
+            argv: [docker, logs, --tail, "50", "{{ container }}"]
+          register: container_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Fallar con los logs
+          ansible.builtin.fail:
+            msg: "La API no quedó lista: {{ container_logs.stdout_lines + container_logs.stderr_lines }}"

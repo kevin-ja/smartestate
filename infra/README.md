@@ -48,6 +48,9 @@ deciden quién lee o escribe; y los clusters solo salen de plantillas con límit
 | External Locations | "Esta carpeta de S3 se abre con esa credencial". `raw` y `ref` solo lectura | `uc/` |
 | Catálogo `smartestate` | Tablas. Un schema por capa, cada uno en su carpeta | `uc/` |
 | Cluster policies | `dev`: interactivo, 1 nodo `m5d.large` spot, se apaga a los 20 min, 1 por usuario · `jobs`: 1 nodo, nace y muere con el job | `dbx_compute_policies` |
+| Servicio de inferencia | API en EC2 con su red, ECR, logs y rol. No se apaga con el workspace | `inference_service` |
+| CI/CD de la inferencia | OIDC de GitHub, sus roles y los buckets de planes y Ansible. Se aplica a mano | `cicd` |
+| Bucket del estado de Terraform | Primer paso desde cero. Stack aparte, con estado local propio | `state_backend/` |
 
 ## Identidades: una por trabajo
 

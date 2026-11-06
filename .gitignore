@@ -38,6 +38,12 @@ HANDOFF.md
 # Script local para levantar el workspace: no se versiona
 /start_up.sh
 
+# Script local para apagar la infra de inferencia: no se versiona
+/shut_down_inference_infra.sh
+
+# Configuración local del backend de Terraform: lleva el ID de la cuenta
+/infra/backend.hcl
+
 # Script local para apagar el workspace: no se versiona
 /shut_down.sh
 

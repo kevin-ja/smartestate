@@ -1,0 +1,137 @@
+# Infraestructura de la inferencia (inference_pipeline_design.md). Cambia solo con -target=module.inference_service:
+# el resto de infra/ incluye el workspace de Databricks, que se levanta y se apaga en cada sesión.
+#
+#   Push a main    Plan → guarda el plan en S3 → espera aprobación → apply.
+#
+# El repo es público: el plan puede traer valores sensibles, así que va al bucket privado y el log solo muestra el resumen.
+name: Infra
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - infra/main.tf
+      - infra/variables.tf
+      - infra/outputs.tf
+      - infra/versions.tf
+      - infra/.terraform.lock.hcl
+      - infra/modules/inference_service/**
+      - .github/workflows/infra.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infra # el bucket de estado tiene su propio bloqueo; esto evita el error por adelantado
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.15.8
+  TF_TARGET: module.inference_service
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_profile: ""
+  TF_VAR_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+  TF_VAR_databricks_account_id: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
+  TF_VAR_daily_user_email: ${{ secrets.DAILY_USER_EMAIL }}
+  TF_VAR_inference_allowed_cidrs: ${{ secrets.INFERENCE_ALLOWED_CIDRS }}
+  STATE_BUCKET: smartestate-tfstate-${{ secrets.AWS_ACCOUNT_ID }}
+  PLANS: s3://smartestate-tfplans-${{ secrets.AWS_ACCOUNT_ID }}/${{ github.sha }}-${{ github.run_attempt }}
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: terraform-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    defaults:
+      run:
+        shell: bash # así GitHub activa pipefail
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/smartestate-github-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Iniciar Terraform
+        run: |
+          terraform init -no-color \
+            -backend-config="bucket=${STATE_BUCKET}" -backend-config="key=infra/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" -backend-config="encrypt=true" -backend-config="use_lockfile=true" \
+            > /dev/null
+
+      - name: Calcular el plan
+        id: plan
+        run: |
+          rc=0
+          terraform plan -no-color -detailed-exitcode -target="$TF_TARGET" -out=tfplan > plan.txt 2>&1 || rc=$?
+          aws s3 cp plan.txt "${PLANS}/plan.txt" --only-show-errors
+          if [[ "$rc" -eq 1 ]]; then
+            echo "::error::terraform plan falló. Detalle: plan.txt en el bucket de planes."
+            grep -E '^(│ )?Error:' plan.txt || true
+            exit 1
+          fi
+          grep -E '^(Plan:|No changes)' plan.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$rc" -eq 2 ]]; then
+            aws s3 cp tfplan "${PLANS}/tfplan" --only-show-errors
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  apply:
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    environment: production # aquí espera tu aprobación
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash # así GitHub activa pipefail
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/smartestate-github-terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Iniciar Terraform
+        run: |
+          terraform init -no-color \
+            -backend-config="bucket=${STATE_BUCKET}" -backend-config="key=infra/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" -backend-config="encrypt=true" -backend-config="use_lockfile=true" \
+            > /dev/null
+
+      - name: Aplicar el plan aprobado
+        run: |
+          aws s3 cp "${PLANS}/tfplan" tfplan --only-show-errors
+          rc=0
+          terraform apply -no-color tfplan > apply.txt 2>&1 || rc=$?
+          aws s3 cp apply.txt "${PLANS}/apply.txt" --only-show-errors
+          if [[ "$rc" -ne 0 ]]; then
+            echo "::error::terraform apply falló. Detalle: apply.txt en el bucket de planes."
+            grep -E '^(│ )?Error:' apply.txt || true
+            exit 1
+          fi
+          grep -E '^Apply complete' apply.txt | tee -a "$GITHUB_STEP_SUMMARY"
