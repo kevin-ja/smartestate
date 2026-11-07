@@ -13,11 +13,14 @@ terraform {
 }
 
 # Lee del estado de infra/ la URL del workspace (cambia en cada recreación), el bucket,
-# la credencial y el grupo. Nada se copia a mano.
+# la credencial y el grupo. Nada se copia a mano. Ese estado vive en S3 (infra/state_backend/).
 data "terraform_remote_state" "infra" {
-  backend = "local"
+  backend = "s3"
   config = {
-    path = "${path.module}/../terraform.tfstate"
+    bucket  = "smartestate-tfstate-${var.account_id}"
+    key     = "infra/terraform.tfstate"
+    region  = "us-east-1"
+    profile = var.aws_profile
   }
 }
 

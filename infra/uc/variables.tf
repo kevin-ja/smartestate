@@ -26,3 +26,14 @@ variable "table_layers" {
   type        = list(string)
   default     = ["feature_store_offline"]
 }
+
+variable "account_id" {
+  description = "Cuenta AWS: nombra el bucket del estado de infra/. Sale de TF_VAR_account_id en .env."
+  type        = string
+}
+
+variable "aws_profile" {
+  description = "Perfil AWS con acceso al bucket del estado de infra/."
+  type        = string
+  default     = "smartestate"
+}

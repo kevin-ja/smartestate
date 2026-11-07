@@ -10,7 +10,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NEW_ID=$(terraform -chdir=.. output -raw databricks_workspace_id)
+# El estado de infra/ vive en S3: sin perfil, Terraform usa las credenciales por defecto y recibe 403.
+NEW_ID=$(AWS_PROFILE="${AWS_PROFILE:-smartestate}" terraform -chdir=.. output -raw databricks_workspace_id)
 
 terraform state pull > terraform.tfstate.pre-sync   # respaldo (ignorado por git)
 jq --arg id "$NEW_ID" \
