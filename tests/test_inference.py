@@ -51,7 +51,7 @@ def index_at_km(distances_km: dict[int, float]) -> GeoIndex:
 
 def test_geo_index_returns_nearest_first():
     index = index_at_km({1: 4.0, 2: 1.0, 3: 2.0})
-    assert index.query(19.0, -99.0, 5.0, 11, 1) == [2, 3, 1]
+    assert index.query(19.0, -99.0, 5.0, 11, 1) == [1, 2, 3]  # roto a propósito: prueba del CI/CD
 
 
 def test_radius_stops_at_the_first_with_enough_candidates():
@@ -147,7 +147,7 @@ def test_diversity_penalizes_a_repeated_cluster():
 
 def test_diversity_with_delta_one_keeps_the_score_order():
     top = recommender.diversify([1, 2, 3], np.array([0.8, 1.0, 0.9]), [0, 0, 0], 1.0, 3)
-    assert top == [2, 3, 1]
+    assert top == [1, 2, 3]  # roto a propósito: prueba del CI/CD
 
 
 def test_diversity_breaks_ties_by_spot_id():
@@ -327,7 +327,7 @@ def test_recommendations_returns_the_run_and_the_spots(client):
 
 
 def test_recommendations_uses_the_default_n(client):
-    assert client.get("/recommendations/0").json()["spot_ids"] == [2, 3, 1]
+    assert client.get("/recommendations/0").json()["spot_ids"] == [1, 2, 3]  # roto a propósito: prueba del CI/CD
 
 
 def test_recommendations_unknown_spot_is_404(client):
