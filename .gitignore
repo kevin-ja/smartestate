@@ -52,3 +52,6 @@ HANDOFF.md
 
 # Bitácora local de las corridas: no se versiona
 /data_pipeline.md
+
+# Resultados de la prueba de carga
+/tests/performance/results/

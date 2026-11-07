@@ -339,6 +339,12 @@ def test_recommendations_rejects_an_invalid_n(client, n):
     assert client.get(f"/recommendations/0?n={n}").status_code == 422
 
 
+def test_every_response_reports_the_time_spent_in_the_service(client):
+    header = client.get("/recommendations/0?n=2").headers["Server-Timing"]
+    assert header.startswith("app;dur=")
+    assert float(header.removeprefix("app;dur=")) >= 0
+
+
 def test_health_and_version_when_loaded(client):
     assert client.get("/health").json() == {"status": "ok"}
     assert client.get("/version").json() == {"run_id": "abc", "params": PARAMS}

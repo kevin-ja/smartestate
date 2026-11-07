@@ -7,6 +7,7 @@ FastAPI service (new_arch.md §4). Loads one run at startup and answers each cli
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -72,6 +73,14 @@ def create_app(load: Callable[[], Service] = load_service) -> FastAPI:
         yield
 
     app = FastAPI(title="SmartEstate", lifespan=lifespan)
+
+    # Time spent inside the service, without the network. The load test (tests/performance/) reads it.
+    @app.middleware("http")
+    async def server_timing(request: Request, call_next: Callable) -> Any:
+        start = time.perf_counter()
+        response = await call_next(request)
+        response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - start) * 1000:.1f}"
+        return response
 
     # Plain `def`: FastAPI runs them in a thread pool, so the blocking DynamoDB reads do not stop other requests.
     @app.get("/recommendations/{spot_id}")
