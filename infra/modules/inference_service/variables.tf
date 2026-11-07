@@ -66,7 +66,7 @@ variable "images_to_keep" {
 
 variable "log_retention_days" {
   type    = number
-  default = 7
+  default = 14
 }
 
 variable "tags" {
