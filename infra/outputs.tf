@@ -47,6 +47,11 @@ output "databricks_pipeline_group" {
   value = module.dbx_pipeline_identity.group_name
 }
 
+output "databricks_cicd_sp_application_id" {
+  description = "Client ID del CI/CD del entrenamiento (secreto DATABRICKS_CICD_CLIENT_ID en GitHub)."
+  value       = module.dbx_cicd_identity.application_id
+}
+
 output "databricks_jobs_sp_application_id" {
   description = "run_as de los jobs (Asset Bundles)."
   value       = module.dbx_pipeline_identity.application_id

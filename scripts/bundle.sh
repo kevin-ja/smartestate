@@ -14,6 +14,13 @@ shift
 bundle_dir="$repo/bundles/$pipeline"
 [[ -f "$bundle_dir/databricks.yml" ]] || { echo "No existe $bundle_dir/databricks.yml" >&2; exit 1; }
 
+# MLflow guarda el commit del deploy (tag git_commit). Con cambios sin commit, ese hash no sería el
+# código que corre: se rechaza el deploy (train_pipeline_mlops.md).
+if [[ "${1:-}" == "deploy" && -n "$(git -C "$repo" status --porcelain)" ]]; then
+  echo "Hay cambios sin commit: haz commit antes de desplegar." >&2
+  exit 1
+fi
+
 set -a; . "$repo/.env"; set +a
 # Perfil explícito del usuario diario: sin él, el CLI usa el default_profile de ~/.databrickscfg,
 # que es el SP de IaC (admin de cuenta). Se crea en cada workspace nuevo con:

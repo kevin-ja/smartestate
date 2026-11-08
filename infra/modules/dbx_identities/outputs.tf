@@ -7,3 +7,8 @@ output "engineers_acl_principal_id" {
   description = "Identificador del grupo en reglas de acceso de cuenta (p. ej. quién usa un SP como run_as)."
   value       = databricks_group.engineers.acl_principal_id
 }
+
+output "engineers_group_id" {
+  description = "ID del grupo, para sumarle miembros desde otros módulos."
+  value       = databricks_group.engineers.id
+}

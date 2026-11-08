@@ -112,7 +112,7 @@ def run(spark: SparkSession, args: argparse.Namespace) -> DataPipelineResult:
 
 def _log_mlflow(models: dict, stats: dict[str, int], fs_version: int, args: argparse.Namespace) -> None:
     """FE models, counts, stage times and the Delta version used. Tags and metrics only: a repair run may overwrite them."""
-    with start_run(args.experiment, args.run_id):
+    with start_run(args.experiment, args.run_id, args.git_commit):
         mlflow.set_tags({"ingest_date": args.ingest_date, "fs_offline_table": args.fs_table, "fs_offline_version": fs_version})
         mlflow.log_metrics(stats)
         with stage("mlflow_log_models"):
@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sbert-uri", required=True, help="SBERT tarball under s3://<bucket>/models/")
     parser.add_argument("--fs-table", required=True)
     parser.add_argument("--experiment", required=True, help="MLflow experiment path")
+    parser.add_argument("--git-commit", required=True, help="${bundle.git.commit}: code the bundle was deployed from")
     parser.add_argument(
         "--spark-probes", choices=("true", "false"), default="false",
         help="After T1 finishes, run the diagnostic experiments of src/common/spark_probes.py",

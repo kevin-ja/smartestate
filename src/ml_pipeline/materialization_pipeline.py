@@ -67,7 +67,7 @@ def _clean_up(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
 
 def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
     online_table = materialization.online_table_name(args.run_id)
-    with start_run(args.experiment, args.run_id):
+    with start_run(args.experiment, args.run_id, args.git_commit):
         with stage("publish_table"):
             online_store.publish(args.fs_table, online_table, args.region)
         with stage("smoke_test"):
@@ -87,6 +87,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--region", required=True, help="AWS region of the DynamoDB tables")
     parser.add_argument("--fs-table", required=True)
     parser.add_argument("--experiment", required=True, help="MLflow experiment path")
+    parser.add_argument("--git-commit", required=True, help="${bundle.git.commit}: code the bundle was deployed from")
     args = parser.parse_args(argv)
 
     logs.configure()

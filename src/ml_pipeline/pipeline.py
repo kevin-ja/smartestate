@@ -55,7 +55,7 @@ def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, float]:
         storage.write_json(spark, reranker_params, LOCAL_DIR / "reranker_params.json", f"{run_dir}/reranker_params.json")
 
     metrics = {"modeling_candidates": len(candidates), **result.metrics}
-    with start_run(args.experiment, args.run_id):
+    with start_run(args.experiment, args.run_id, args.git_commit):
         mlflow.log_params(reranker_params)
         mlflow.log_metrics(metrics)
         # Shows whether rows without text pile up in a few clusters (plan 0.4).
@@ -79,6 +79,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--runs-root", required=True, help="e.g. s3://<bucket>/runs")
     parser.add_argument("--fs-table", required=True)
     parser.add_argument("--experiment", required=True, help="MLflow experiment path")
+    parser.add_argument("--git-commit", required=True, help="${bundle.git.commit}: code the bundle was deployed from")
     args = parser.parse_args(argv)
 
     logs.configure()

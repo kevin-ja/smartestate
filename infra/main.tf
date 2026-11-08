@@ -145,6 +145,28 @@ module "dbx_pipeline_identity" {
   run_as_user_groups         = [module.dbx_identities.engineers_acl_principal_id]
 }
 
+# Identidad del CI/CD del entrenamiento: despliega el bundle desde main (train_pipeline_mlops.md).
+# Sin depends_on a nivel módulo: SP y federation policy persisten; solo la membresía se recrea.
+module "dbx_cicd_identity" {
+  source    = "./modules/dbx_cicd_identity"
+  providers = { databricks = databricks.account }
+
+  project               = var.project
+  databricks_account_id = var.databricks_account_id
+  github_subject_prefix = var.github_subject_prefix
+  engineers_group_id    = module.dbx_identities.engineers_group_id
+}
+
+# Variables de Actions del workflow Training: IDs de los SP y URL del workspace, en cada apply.
+module "github_training_variables" {
+  source = "./modules/github_training_variables"
+
+  repository     = var.github_repository
+  workspace_url  = module.dbx_workspace.workspace_url
+  cicd_client_id = module.dbx_cicd_identity.application_id
+  jobs_sp_id     = module.dbx_pipeline_identity.application_id
+}
+
 # Cómputo: los clusters se crean solo a través de estas policies. Van después de las identidades:
 # los grupos tienen que estar asignados al workspace para recibir CAN_USE.
 module "dbx_compute_policies" {

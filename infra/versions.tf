@@ -14,6 +14,10 @@ terraform {
       source  = "hashicorp/time"
       version = "~> 0.14"
     }
+    github = {
+      source  = "integrations/github"
+      version = "~> 6.6"
+    }
   }
 
   # Estado en un bucket privado, para que lo use también GitHub Actions. El nombre va aparte porque lleva el ID
@@ -45,4 +49,10 @@ provider "databricks" {
   alias   = "workspace"
   host    = module.dbx_workspace.workspace_url
   profile = var.databricks_profile
+}
+
+# Variables de Actions del workflow "Training". El token sale de GITHUB_TOKEN: start_up.sh y
+# shut_down.sh lo toman de `gh auth token` solo para el proceso de Terraform.
+provider "github" {
+  owner = var.github_owner
 }

@@ -5,13 +5,21 @@ from __future__ import annotations
 import mlflow
 
 
-def start_run(experiment: str, run_id: str) -> mlflow.ActiveRun:
-    """Reuses the MLflow run tagged with this run_id (a later task or a repair run) or creates it."""
+def start_run(experiment: str, run_id: str, git_commit: str) -> mlflow.ActiveRun:
+    """Reuses the MLflow run tagged with this run_id (a later task or a repair run) or creates it.
+
+    Tags the run with the git commit the bundle was deployed from, so a model leads to its code.
+    """
+    if not git_commit:
+        raise ValueError("git_commit is empty: deploy the bundle from a git checkout")
     mlflow.set_experiment(experiment)
     found = mlflow.search_runs(filter_string=f"tags.run_id = '{run_id}'", max_results=1, output_format="list")
     if found:
-        return mlflow.start_run(run_id=found[0].info.run_id)
-    return mlflow.start_run(run_name=f"train-{run_id}", tags={"run_id": run_id})
+        run = mlflow.start_run(run_id=found[0].info.run_id)
+    else:
+        run = mlflow.start_run(run_name=f"train-{run_id}", tags={"run_id": run_id})
+    mlflow.set_tag("git_commit", git_commit)
+    return run
 
 
 def latest_champion_run_id(experiment: str) -> str | None:

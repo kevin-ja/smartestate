@@ -80,6 +80,18 @@ variable "github_subject_prefix" {
   default     = "repo:kevin-ja@176353864/smartestate@1389932863"
 }
 
+variable "github_owner" {
+  description = "Dueño del repo en GitHub (provider github)."
+  type        = string
+  default     = "kevin-ja"
+}
+
+variable "github_repository" {
+  description = "Repo cuyo workflow Training recibe las variables de Actions."
+  type        = string
+  default     = "smartestate"
+}
+
 variable "create_github_oidc_provider" {
   description = "false si la cuenta ya tiene el proveedor OIDC de GitHub: AWS admite uno solo por URL."
   type        = bool

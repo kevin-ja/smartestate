@@ -1,0 +1,117 @@
+# CI/CD del pipeline de entrenamiento (train_pipeline_mlops.md).
+#
+#   PR o push a main   Solo tests, en el contenedor de tests/Dockerfile. Gratis: no toca Databricks.
+#   Manual             Tests → deploy del bundle desde main → corre el job smartestate_train.
+#                      El workspace tiene que estar arriba (start_up.sh). Terraform deja su URL y los IDs
+#                      de los SP como variables de Actions (infra/modules/github_training_variables).
+#
+# Un cambio en docs, inferencia o infra no dispara nada (filtro por carpetas).
+
+name: Training
+
+on:
+  pull_request:
+    paths:
+      - src/data_pipeline/**
+      - src/ml_pipeline/**
+      - src/common/**
+      - config/**
+      - tests/test_training_pipeline.py
+      - tests/Dockerfile*
+      - bundles/data/**
+      - .github/workflows/training.yml
+  push:
+    branches: [main]
+    paths:
+      - src/data_pipeline/**
+      - src/ml_pipeline/**
+      - src/common/**
+      - config/**
+      - tests/test_training_pipeline.py
+      - tests/Dockerfile*
+      - bundles/data/**
+      - .github/workflows/training.yml
+  workflow_dispatch:
+    inputs:
+      ingest_date:
+        description: Carpeta de raw/ a leer (YYYY-MM-DD). Vacío usa la fecha del run.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir la imagen de tests
+        run: docker build -f tests/Dockerfile -t smartestate-tests .
+
+      - name: Correr los tests
+        # Solo los del entrenamiento: los de inferencia corren en inference.yml, con sus dependencias.
+        run: docker run --rm smartestate-tests python -m pytest tests/test_training_pipeline.py -v -p no:cacheprovider
+
+  train:
+    needs: unit-tests
+    # Solo a mano y desde main: la federation policy de Databricks no acepta otra rama.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    concurrency:
+      group: training-run # el job admite una corrida a la vez
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Entra como el SP smartestate-cicd por OIDC, sin secreto (infra/modules/dbx_cicd_identity).
+      DATABRICKS_AUTH_TYPE: github-oidc
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CICD_CLIENT_ID }}
+      DATABRICKS_TOKEN_AUDIENCE: ${{ secrets.DATABRICKS_ACCOUNT_ID }}
+      # Lo mismo que scripts/bundle.sh arma desde .env.
+      BUNDLE_VAR_raw_root: s3://smartestate-lake-${{ secrets.AWS_ACCOUNT_ID }}/raw
+      BUNDLE_VAR_ref_root: s3://smartestate-lake-${{ secrets.AWS_ACCOUNT_ID }}/ref
+      BUNDLE_VAR_runs_root: s3://smartestate-lake-${{ secrets.AWS_ACCOUNT_ID }}/runs
+      BUNDLE_VAR_models_root: s3://smartestate-lake-${{ secrets.AWS_ACCOUNT_ID }}/models
+      BUNDLE_VAR_jobs_sp_id: ${{ vars.DATABRICKS_JOBS_SP_ID }}
+    steps:
+      - name: Verificar que el workspace esté arriba
+        run: |
+          if [[ -z "$DATABRICKS_HOST" ]]; then
+            echo "::error::No hay variable DATABRICKS_HOST: el workspace está apagado. Corre start_up.sh."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: databricks/setup-cli@v1.17.0
+
+      - name: Desplegar el bundle
+        working-directory: bundles/data
+        # ${bundle.git.commit} toma el commit de este checkout: es el que llega a MLflow como git_commit.
+        run: databricks bundle deploy -t dev
+
+      - name: Correr el entrenamiento
+        working-directory: bundles/data
+        env:
+          INGEST_DATE: ${{ inputs.ingest_date }}
+        run: |
+          params=()
+          [[ -n "$INGEST_DATE" ]] && params=(--params "ingest_date=${INGEST_DATE}")
+          databricks bundle run data_pipeline -t dev "${params[@]}"
+
+      - name: Resumen
+        run: |
+          {
+            echo "### Entrenamiento"
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- workspace: ${DATABRICKS_HOST}"
+          } >> "$GITHUB_STEP_SUMMARY"

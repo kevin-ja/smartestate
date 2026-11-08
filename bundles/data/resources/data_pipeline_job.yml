@@ -2,6 +2,7 @@
 # en una sola task y sin tablas intermedias (new_arch.md §3.1). Cuarentena en runs/<run_id>/.
 # unit_tests corre antes, en el mismo job cluster: mientras no haya CI, es donde corren los tests
 # de Spark (plan, Fase 2). Después: T2 · modeling -> validate_fs -> T3 · materialization. Disparo manual por ahora.
+# --git-commit: el commit desde el que se desplegó el bundle; queda como tag git_commit en MLflow (train_pipeline_mlops.md).
 
 resources:
   experiments:
@@ -87,6 +88,8 @@ resources:
               - ${var.catalog}.feature_store_offline.spots_fs_offline
               - --experiment
               - ${resources.experiments.train.name}
+              - --git-commit
+              - ${bundle.git.commit}
               - --spark-probes
               - "{{job.parameters.spark_probes}}"
           libraries: *libraries
@@ -106,6 +109,8 @@ resources:
               - ${var.catalog}.feature_store_offline.spots_fs_offline
               - --experiment
               - ${resources.experiments.train.name}
+              - --git-commit
+              - ${bundle.git.commit}
           libraries: *libraries
 
         - task_key: validate_fs
@@ -136,4 +141,6 @@ resources:
               - ${var.catalog}.feature_store_offline.spots_fs_offline
               - --experiment
               - ${resources.experiments.train.name}
+              - --git-commit
+              - ${bundle.git.commit}
           libraries: *libraries
