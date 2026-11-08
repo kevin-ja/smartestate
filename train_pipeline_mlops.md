@@ -35,7 +35,7 @@ gh workflow run training.yml
 ```
 ## Criterio 2 · Versionamiento de datos: cada corrida sabe qué datos usó y los conserva
 
-**Estado actual (2026-11-08):** implementado; tests en verde en Docker.
+**Estado actual (2026-11-08): probado de punta a punta.** Corrida `1087669519397477` en verde: MLflow registra los dos CSV (digest = ETag de S3) y el clone `spots_fs_offline_1087669519397477` (versión 18 del FS). `raw/` sin expiración aplicado en S3.
 
 ```
 raw/<fecha>/*.csv ──▶ T1: MD5 de cada CSV ──▶ MLflow (dataset "raw", digest = MD5 = ETag de S3)
