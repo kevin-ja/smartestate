@@ -89,9 +89,17 @@ convertir los vectores de cada clic. La versión 2.0 lo elimina.
 
 Decidido por Kevin el 2026-11-07: queda para la versión 2.0, no se implementa ahora.
 
-**Problema de costo:** cada clic lee de DynamoDB hasta 300 candidatos (~6 MB) y los re-rankea. Para
-1.000 usuarios concurrentes (~400 req/s) habría que pagar ~2.650 USD/mes de cómputo y, con tráfico 24/7,
-~97.000 USD/mes de lecturas (~94 USD por millón de clics). Son precios de lista de `us-east-1`, aproximados.
+**Problema de costo:** cada clic lee de DynamoDB sus candidatos (85 en promedio, hasta 300; ~19 KB cada
+uno) y los re-rankea. Para 1.000 usuarios concurrentes (~400 req/s):
+
+| | USD/mes |
+|---|---:|
+| Cómputo: ~50 `t3.small` (aguanta 20 usuarios cada una) + ALB | ~800 |
+| DynamoDB, peor caso: 1.000 usuarios 24/7 (~1.000 millones de clics) | ~27.500 |
+| DynamoDB, pico de 2 h al día (~86 millones de clics) | ~2.300 |
+
+Cobro por demanda: ~27 USD por millón de clics. Son precios de lista de `us-east-1`, aproximados; no se
+verificó el modo de cobro de las tablas.
 
 **Propuesta A (recomendada): precalcular las recomendaciones por corrida.** La respuesta depende solo del
 aviso clicado y de la corrida, sin datos del usuario. T3 corre la cascada para los ~2.500 avisos y guarda
