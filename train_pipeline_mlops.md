@@ -60,7 +60,7 @@ aws s3api get-object --bucket smartestate-lake-<cuenta> --key raw/ingest_date=<f
 
 ## Criterio 3 · Seguimiento de experimentos
 
-**Estado actual (2026-11-08):** completo; test en verde, sin corrida en Databricks todavía.
+**Estado actual (2026-11-08): probado.** La corrida `19942397788962` registra los cuatro hiperparámetros.
 
 T2 registra en MLflow los hiperparámetros del K-means (`kmeans_k_min`, `kmeans_k_max`, `kmeans_seed`,
 `kmeans_n_init`) desde `modeling.hyperparameters()`. Antes vivían solo en el código: dos corridas no mostraban
@@ -68,7 +68,7 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 
 ## Criterio 4 · Reproducibilidad
 
-**Estado actual (2026-11-08):** implementado; falta la prueba de dos corridas.
+**Estado actual (2026-11-08): probado.** Tres corridas sobre los mismos datos (`317679628158877`, `1087669519397477`, `19942397788962`): 0 `cluster_id` distintos y vectores idénticos bit a bit en las 2.500 filas. MLflow registra runtime 18.3, Spark 4.1.0, Python 3.12.3 y `packages.txt`.
 
 | Decisión | Por qué |
 |---|---|
