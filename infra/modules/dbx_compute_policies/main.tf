@@ -9,16 +9,14 @@
 # Las dos son un solo nodo: el dataset son dos CSV. dev es spot; jobs, on-demand.
 # El nodo de jobs es propio (jobs_node_type_id): escalar T1 no encarece el cluster dev.
 # Viven en el workspace: se destruyen y recrean con él en cada sesión (no guardan estado).
+# El runtime está fijo en var.spark_version: antes era "el último LTS" y podía cambiar solo (criterio 4).
 # ─────────────────────────────────────────────────────────────────────────────
 
-data "databricks_spark_version" "lts" {
-  long_term_support = true
-}
 
 locals {
   # Reglas comunes a las dos policies. "fixed" = el usuario no puede cambiarlo.
   common = {
-    "spark_version"                               = { type = "fixed", value = data.databricks_spark_version.lts.id }
+    "spark_version"                               = { type = "fixed", value = var.spark_version }
     "node_type_id"                                = { type = "fixed", value = var.node_type_id }
     "driver_node_type_id"                         = { type = "fixed", value = var.node_type_id }
     "num_workers"                                 = { type = "fixed", value = 0 }

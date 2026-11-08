@@ -24,7 +24,7 @@ from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor
 from src.common.run_monitor import stage
-from src.common.tracking import start_run
+from src.common.tracking import log_environment, start_run
 from src.ml_pipeline import modeling, storage
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,8 @@ def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, float]:
     metrics = {"modeling_candidates": len(candidates), **result.metrics}
     with start_run(args.experiment, args.run_id, args.git_commit):
         mlflow.log_params(reranker_params)
+        mlflow.log_params(modeling.hyperparameters())
+        log_environment(spark)  # T2 may run alone on a new cluster (repair run)
         mlflow.log_metrics(metrics)
         # Shows whether rows without text pile up in a few clusters (plan 0.4).
         mlflow.log_dict(result.spread, "cluster_spread.json")

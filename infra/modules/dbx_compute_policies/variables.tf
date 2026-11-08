@@ -2,6 +2,12 @@ variable "project" {
   type = string
 }
 
+variable "spark_version" {
+  description = "Runtime de Databricks, fijo para que el entrenamiento sea reproducible (train_pipeline_mlops.md, criterio 4). El \".x\" son los parches de mantenimiento, que Databricks aplica solo; los paquetes exactos de cada corrida quedan en MLflow."
+  type        = string
+  default     = "18.x-scala2.13" # 18 LTS: Spark 4.1.0, Python 3.12.3
+}
+
 variable "node_type_id" {
   description = "Instancia del cluster dev (driver = nodo). m5d.large: 2 vCPU, 8 GB, disco NVMe local."
   type        = string

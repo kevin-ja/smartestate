@@ -326,6 +326,11 @@ def test_cluster_id_only_for_candidates(result, gold):
     assert all(row["cluster_id"] == 0 for spot_id, row in rows.items() if spot_id != 3)
 
 
+def test_hyperparameters_match_what_the_kmeans_uses():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    assert modeling.hyperparameters() == {"kmeans_k_min": 5, "kmeans_k_max": 8, "kmeans_seed": 0, "kmeans_n_init": 10}
+
+
 # ── T3 · materialization (plan, Phase 4) ──────────────────────────────────────
 # Same rule on both sides (P31): spots_fs_online_<run_id> in DynamoDB and runs/<run_id>/ in S3.
 # publish_table and the real GetItem (plan 4.3) need AWS: they are runtime checks, not here.

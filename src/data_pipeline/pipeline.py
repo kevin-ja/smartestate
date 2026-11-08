@@ -30,7 +30,7 @@ from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor, spark_probes
 from src.common.run_monitor import stage
-from src.common.tracking import start_run
+from src.common.tracking import log_environment, start_run
 from src.data_pipeline import cleaning, feature_engineering, ingestion, preprocessing, storage
 from src.data_pipeline.contract.schema import RAW_ATTRIBUTES_COLUMNS, RAW_SPOTS_COLUMNS, TAB_DIMS
 
@@ -120,6 +120,7 @@ def run(spark: SparkSession, args: argparse.Namespace) -> DataPipelineResult:
 def _log_mlflow(models: dict, stats: dict[str, int], fs_version: int, raw_inputs: list, args: argparse.Namespace) -> None:
     """FE models, counts, stage times, the Delta version used and the raw files read, with their MD5 as digest."""
     with start_run(args.experiment, args.run_id, args.git_commit):
+        log_environment(SparkSession.getActiveSession())
         for dataset in raw_inputs:
             mlflow.log_input(dataset, context="raw")
         mlflow.set_tags({"ingest_date": args.ingest_date, "fs_offline_table": args.fs_table, "fs_offline_version": fs_version})

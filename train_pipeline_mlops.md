@@ -57,3 +57,24 @@ spots_fs_offline  ──▶ T3: DEEP CLONE spots_fs_offline_<run_id> ──▶ M
 aws s3api list-object-versions --bucket smartestate-lake-<cuenta> --prefix raw/ingest_date=<fecha>/data.csv
 aws s3api get-object --bucket smartestate-lake-<cuenta> --key raw/ingest_date=<fecha>/data.csv --version-id <id> data.csv
 ```
+
+## Criterio 3 · Seguimiento de experimentos
+
+**Estado actual (2026-11-08):** completo; test en verde, sin corrida en Databricks todavía.
+
+T2 registra en MLflow los hiperparámetros del K-means (`kmeans_k_min`, `kmeans_k_max`, `kmeans_seed`,
+`kmeans_n_init`) desde `modeling.hyperparameters()`. Antes vivían solo en el código: dos corridas no mostraban
+por qué sus clusters difieren. Se confirma en la próxima corrida.
+
+## Criterio 4 · Reproducibilidad
+
+**Estado actual (2026-11-08):** implementado; falta la prueba de dos corridas.
+
+| Decisión | Por qué |
+|---|---|
+| Runtime fijo en `var.spark_version = "18.x-scala2.13"` (18 LTS), en vez de "el último LTS" | El runtime trae Spark, Python, Java y numpy/pandas/scipy: no salta solo a otro LTS |
+| MLflow guarda `databricks_runtime`, `spark_version`, `python_version` y `environment/packages.txt` (T1 y T2) | El `.x` son parches que Databricks aplica solo: si uno cambia un paquete, se ve al comparar corridas |
+| Ya cubierto por los criterios 1 y 2 | Código exacto (`git_commit`) y datos exactos (MD5 del raw y clone del FS) |
+
+**Prueba:** dos corridas sobre los mismos datos → mismo `cluster_id` y mismos vectores, comparando sus tablas
+`spots_fs_online_<run_id>` en DynamoDB.

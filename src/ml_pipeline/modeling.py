@@ -30,6 +30,16 @@ SEED = 0
 KMEANS_RESTARTS = 10
 
 
+def hyperparameters() -> dict[str, int]:
+    """What the K-means used, for MLflow: two runs then show why their clusters differ."""
+    return {
+        "kmeans_k_min": min(K_VALUES),
+        "kmeans_k_max": max(K_VALUES),
+        "kmeans_seed": SEED,
+        "kmeans_n_init": KMEANS_RESTARTS,
+    }
+
+
 class ModelingError(Exception):
     """The candidates cannot be clustered. The run aborts before writing anything."""
 
