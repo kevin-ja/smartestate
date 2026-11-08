@@ -276,6 +276,57 @@ def test_get_candidates_serves_what_it_got_after_the_retries(monkeypatch):
     assert [item["spot_id"] for item in items] == [1, 2, 3]
 
 
+# --- JSON client of DynamoDB
+
+
+class FakeHttp:
+    """Answers (status, body) in order and keeps what was sent."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.sent = []
+
+    def request(self, method, url, body, headers):
+        self.sent.append({"url": url, "body": json.loads(body), "headers": headers})
+        status, payload = self.answers.pop(0)
+        return type("Response", (), {"status": status, "data": json.dumps(payload).encode()})()
+
+
+def json_client(http, monkeypatch):
+    from botocore.credentials import Credentials
+
+    monkeypatch.setattr(online_store, "RETRY_WAIT_S", 0)
+    session = type("Session", (), {"get_credentials": lambda self: Credentials("key", "secret")})()
+    client = online_store.JsonDynamoClient(session, "us-east-1")
+    client.http = http
+    return client
+
+
+def test_json_client_signs_the_call_and_returns_the_wire_format(monkeypatch):
+    http = FakeHttp((200, {"Item": wire_candidate(7)}))
+    item = OnlineStore("t", json_client(http, monkeypatch)).get_clicked(7)
+    sent = http.sent[0]
+    assert sent["url"] == "https://dynamodb.us-east-1.amazonaws.com/"
+    assert sent["headers"]["X-Amz-Target"] == "DynamoDB_20120810.GetItem"
+    assert sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
+    assert sent["body"]["Key"] == {KEY: {"S": "[7]"}}
+    assert item["tab_vector"] == [0.6, 0.8]
+
+
+def test_json_client_retries_throttling(monkeypatch):
+    throttled = (400, {"__type": "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException"})
+    http = FakeHttp(throttled, (200, {"Responses": {"t": []}}))
+    assert json_client(http, monkeypatch).batch_get_item(RequestItems={}) == {"Responses": {"t": []}}
+    assert len(http.sent) == 2
+
+
+def test_json_client_fails_on_errors_that_retrying_does_not_fix(monkeypatch):
+    http = FakeHttp((400, {"__type": "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException", "message": "no"}))
+    with pytest.raises(online_store.DynamoError, match="ResourceNotFoundException"):
+        json_client(http, monkeypatch).get_item(TableName="t", Key={})
+    assert len(http.sent) == 1
+
+
 # --- S3
 
 

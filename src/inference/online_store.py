@@ -1,4 +1,10 @@
-"""Reads of the online feature store (DynamoDB). Credentials come from the EC2 instance profile."""
+"""
+Reads of the online feature store (DynamoDB). Credentials come from the EC2 instance profile.
+
+JsonDynamoClient replaces boto3's client on the hot path: botocore walks every {"N": "..."} of the 768-number vectors
+through its parser, ~390 ms of CPU for 300 candidates; json.loads plus _decode take ~100 ms
+(docs/performance_report.md). Same request and response format, so OnlineStore works with either.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,10 @@ from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import urllib3
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+
 from src.ml_pipeline.materialization import ONLINE_KEY_ATTRIBUTE, online_key
 
 log = logging.getLogger(__name__)
@@ -16,6 +26,8 @@ log = logging.getLogger(__name__)
 BATCH_SIZE = 100  # BatchGetItem limit
 MAX_BATCH_ATTEMPTS = 3
 RETRY_WAIT_S = 0.05
+MAX_REQUEST_ATTEMPTS = 3  # throttling and 5xx, as botocore's default retry did
+RETRYABLE_ERRORS = ("ThrottlingException", "ProvisionedThroughputExceededException", "RequestLimitExceeded")
 
 CLICKED_COLUMNS = (
     "latitude", "longitude", "sector_id", "modality_mask", "tab_vector", "nlp_vector", "rent_price_sqm", "sale_price_sqm",
@@ -23,6 +35,45 @@ CLICKED_COLUMNS = (
 CANDIDATE_COLUMNS = (
     ONLINE_KEY_ATTRIBUTE, "tab_vector", "nlp_vector", "rent_price_sqm", "sale_price_sqm", "modality_mask", "cluster_id",
 )
+
+
+class DynamoError(Exception):
+    """DynamoDB answered with an error that retrying does not fix."""
+
+
+class JsonDynamoClient:
+    """GetItem and BatchGetItem over DynamoDB's JSON API: signed with botocore, parsed with json."""
+
+    def __init__(self, session: Any, region: str) -> None:
+        self.credentials = session.get_credentials()  # refreshable: rotates the instance profile's keys
+        self.region = region
+        self.url = f"https://dynamodb.{region}.amazonaws.com/"
+        self.http = urllib3.PoolManager(maxsize=32)  # thread-safe: FastAPI and the batches share it
+
+    def get_item(self, **params: Any) -> dict[str, Any]:
+        return self._call("GetItem", params)
+
+    def batch_get_item(self, **params: Any) -> dict[str, Any]:
+        return self._call("BatchGetItem", params)
+
+    def _call(self, operation: str, params: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps(params)
+        for attempt in range(MAX_REQUEST_ATTEMPTS):
+            request = AWSRequest(method="POST", url=self.url, data=body, headers={
+                "Content-Type": "application/x-amz-json-1.0",
+                "X-Amz-Target": f"DynamoDB_20120810.{operation}",
+            })
+            SigV4Auth(self.credentials.get_frozen_credentials(), "dynamodb", self.region).add_auth(request)
+            response = self.http.request("POST", self.url, body=body, headers=dict(request.headers))
+            payload = json.loads(response.data) if response.data else {}
+            if response.status == 200:
+                return payload
+            error = str(payload.get("__type", "")).rsplit("#", 1)[-1]
+            retryable = response.status >= 500 or error in RETRYABLE_ERRORS
+            if not retryable or attempt == MAX_REQUEST_ATTEMPTS - 1:
+                raise DynamoError(f"{operation}: HTTP {response.status} {error}: {payload.get('message', '')}")
+            time.sleep(RETRY_WAIT_S * (attempt + 1))
+        raise AssertionError("unreachable")
 
 
 def _projection(columns: Sequence[str]) -> dict[str, Any]:

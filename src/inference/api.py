@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, statu
 from pydantic import BaseModel
 
 from src.inference import artifacts, recommender
-from src.inference.online_store import OnlineStore
+from src.inference.online_store import JsonDynamoClient, OnlineStore
 from src.ml_pipeline.materialization import online_table_name
 
 
@@ -47,12 +47,13 @@ class Version(BaseModel):
 def load_service() -> Service:
     """GeoIndex, parameters and features all come from the same run_id, set by the deployment."""
     run_id, runs_root, region = os.environ["RUN_ID"], os.environ["RUNS_ROOT"], os.environ["AWS_REGION"]
-    s3 = boto3.client("s3", region_name=region)
+    session = boto3.Session(region_name=region)
+    s3 = session.client("s3")
     return Service(
         run_id=run_id,
         geo_index=artifacts.load_geo_index(s3, runs_root, run_id),
         params=artifacts.load_reranker_params(s3, runs_root, run_id),
-        store=OnlineStore(online_table_name(run_id), boto3.client("dynamodb", region_name=region)),
+        store=OnlineStore(online_table_name(run_id), JsonDynamoClient(session, region)),
     )
 
 
