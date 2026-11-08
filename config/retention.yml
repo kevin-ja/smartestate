@@ -1,0 +1,4 @@
+# Cuántas corridas se conservan (train_pipeline_mlops.md, criterio 2). FIFO por fecha, no por tiempo.
+# Aplica igual a runs/<run_id>/ (S3), spots_fs_online_<run_id> (DynamoDB) y spots_fs_offline_<run_id> (clone).
+# Además de estas, nunca se borran: la corrida en producción, el último champion y la corrida actual.
+keep_runs: 5

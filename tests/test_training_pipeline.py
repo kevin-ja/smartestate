@@ -337,29 +337,54 @@ RUNS_BY_DATE = {"652070532920363": 1.0, "726424880789805": 2.0, "304335789918515
 
 def test_cleanup_orders_by_date_not_by_run_id():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
-    assert materialization.to_drop(RUNS_BY_DATE, "") == ["652070532920363", "726424880789805"]
+    assert materialization.to_drop(RUNS_BY_DATE, "", 3) == ["652070532920363", "726424880789805"]
 
 
 def test_cleanup_applies_the_prefix_and_ignores_other_tables():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
     tables = {f"spots_fs_online_{run}": when for run, when in RUNS_BY_DATE.items()} | {"other": 0.0, "spots_fs_online_x": 0.0}
-    assert materialization.to_drop(tables, "spots_fs_online_") == ["spots_fs_online_652070532920363", "spots_fs_online_726424880789805"]
+    assert materialization.to_drop(tables, "spots_fs_online_", 3) == ["spots_fs_online_652070532920363", "spots_fs_online_726424880789805"]
 
 
 def test_cleanup_ignores_folders_that_are_not_runs():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
-    assert materialization.to_drop(RUNS_BY_DATE | {"_probe": 0.0}, "") == ["652070532920363", "726424880789805"]
+    assert materialization.to_drop(RUNS_BY_DATE | {"_probe": 0.0}, "", 3) == ["652070532920363", "726424880789805"]
 
 
 def test_cleanup_keeps_the_latest_champion_besides_the_last_three():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
     # 726... is the latest champion. 652..., an older champion, gets no protection: the caller only passes the latest.
-    assert materialization.to_drop(RUNS_BY_DATE, "", protect={"726424880789805"}) == ["652070532920363"]
+    assert materialization.to_drop(RUNS_BY_DATE, "", 3, protect={"726424880789805"}) == ["652070532920363"]
 
 
 def test_cleanup_with_a_recent_champion_keeps_only_three():
     materialization = pytest.importorskip("src.ml_pipeline.materialization")
-    assert materialization.to_drop(RUNS_BY_DATE, "", protect={"508031956134800"}) == ["652070532920363", "726424880789805"]
+    assert materialization.to_drop(RUNS_BY_DATE, "", 3, protect={"508031956134800"}) == ["652070532920363", "726424880789805"]
+
+
+def test_cleanup_with_keep_five_deletes_nothing_from_five_runs():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    assert materialization.to_drop(RUNS_BY_DATE, "", 5) == []
+
+
+def test_cleanup_drops_old_snapshots_but_not_the_live_table():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    fs = "smartestate.feature_store_offline.spots_fs_offline"
+    prefix = materialization.snapshot_table_name(fs, "")
+    tables = {materialization.snapshot_table_name(fs, run): when for run, when in RUNS_BY_DATE.items()} | {fs: 0.0}
+    assert materialization.to_drop(tables, prefix, 3, protect={"652070532920363"}) == [f"{fs}_726424880789805"]
+
+
+@pytest.mark.parametrize("retention", [{}, {"keep_runs": 0}, {"keep_runs": "5"}, {"keep_runs": True}, {"keep_runs": 2.5}])
+def test_keep_runs_aborts_on_a_bad_value(retention):
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    with pytest.raises(ValueError):
+        materialization.keep_runs(retention)
+
+
+def test_keep_runs_reads_the_value():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    assert materialization.keep_runs({"keep_runs": 5}) == 5
 
 
 def test_production_run_id_reads_the_pointer():

@@ -4,7 +4,7 @@
 
 ## Criterio 1 · Versionamiento de código: cada modelo apunta a su commit
 
-**Estado actual (2026-11-08):** implementado; tests en verde en Docker; sin probar en GitHub ni en Databricks.
+**Estado actual (2026-11-08): probado de punta a punta.** Corrida `317679628158877` (GitHub run `42504181466`, 18 min) en verde; MLflow tiene `git_commit = 9c7a8e2`.
 
 ```
 Merge a main ──▶ solo tests en GitHub (gratis)
@@ -32,4 +32,28 @@ Antes, el deploy salía de la laptop (podía llevar cambios sin commit) y ni el 
 Alternativamente, desde terminal local:
 ``` bash
 gh workflow run training.yml
+```
+## Criterio 2 · Versionamiento de datos: cada corrida sabe qué datos usó y los conserva
+
+**Estado actual (2026-11-08):** implementado; tests en verde en Docker.
+
+```
+raw/<fecha>/*.csv ──▶ T1: MD5 de cada CSV ──▶ MLflow (dataset "raw", digest = MD5 = ETag de S3)
+spots_fs_offline  ──▶ T3: DEEP CLONE spots_fs_offline_<run_id> ──▶ MLflow (dataset "training") ──▶ DynamoDB
+```
+
+| Decisión | Por qué |
+|---|---|
+| Un solo FS vivo + un clone congelado por corrida (`spots_fs_offline_<run_id>`) | Rollback y auditoría con los datos exactos; un *deep clone* no depende de VACUUM |
+| El clone se toma en T3, justo antes de publicar | El clone es exactamente lo que quedó online; creación y limpieza en el mismo lugar |
+| FIFO por fecha con N en `config/retention.yml` (`keep_runs: 5`) | N versionado y cambiable; aplica igual a `runs/`, DynamoDB y clones |
+| Nunca se borran: producción, último champion y la corrida actual | Producción no se negocia (Kevin) |
+| Raw: MD5 como digest en MLflow | Para un upload de una sola parte el MD5 es el ETag: identifica la versión exacta en S3 |
+| `raw/` sin expiración de versiones viejas en S3 | Si alguien reemplaza un CSV, el original sigue recuperable |
+| T2 pisa el tag `fs_offline_version` de T1 | Aceptado (Kevin): T2 solo agrega `cluster_id`; para reentrenar se quita esa columna |
+
+**Recuperar un CSV exacto:** buscar la versión cuyo ETag coincide con el digest de MLflow.
+```bash
+aws s3api list-object-versions --bucket smartestate-lake-<cuenta> --prefix raw/ingest_date=<fecha>/data.csv
+aws s3api get-object --bucket smartestate-lake-<cuenta> --key raw/ingest_date=<fecha>/data.csv --version-id <id> data.csv
 ```

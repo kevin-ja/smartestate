@@ -91,3 +91,28 @@ def write_fs_offline(df: DataFrame, table: str) -> int:
     """INSERT OVERWRITE keeps the table's primary key, as in T1. Returns the Delta version written."""
     df.write.insertInto(table, overwrite=True)
     return df.sparkSession.sql(f"DESCRIBE HISTORY {table} LIMIT 1").first()["version"]
+
+
+def snapshot_fs_offline(spark: SparkSession, table: str, snapshot: str) -> int:
+    """
+    DEEP CLONE of Spots FS offline as it is now. Returns the source's Delta version that was copied.
+
+    Deep, not shallow: it copies the files, so VACUUM on the source never breaks it. OR REPLACE keeps a
+    repair run idempotent. The job runs one at a time (max_concurrent_runs: 1): nobody writes in between.
+    """
+    version = spark.sql(f"DESCRIBE HISTORY {table} LIMIT 1").first()["version"]
+    spark.sql(f"CREATE OR REPLACE TABLE {snapshot} DEEP CLONE {table} VERSION AS OF {version}")
+    return version
+
+
+def list_snapshots(spark: SparkSession, table: str) -> dict[str, float]:
+    """Full name of each table in the schema of `table` -> its creation date, in seconds. to_drop filters the prefix."""
+    catalog, schema, _ = table.split(".")
+    rows = spark.sql(
+        f"SELECT table_name, created FROM {catalog}.information_schema.tables WHERE table_schema = '{schema}'"
+    ).collect()
+    return {f"{catalog}.{schema}.{row['table_name']}": row["created"].timestamp() for row in rows}
+
+
+def drop_table(spark: SparkSession, table: str) -> None:
+    spark.sql(f"DROP TABLE IF EXISTS {table}")

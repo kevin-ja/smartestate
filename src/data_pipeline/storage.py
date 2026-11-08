@@ -1,10 +1,11 @@
 """
-I/O of the data pipeline: the two writes (quarantine, Spots FS offline) and the SBERT model fetch.
-The CSV and catalog readers stay in their stages (`extract`, `read_catalog`).
+I/O of the data pipeline: the two writes (quarantine, Spots FS offline), the SBERT model fetch and the
+raw files' hash. The CSV and catalog readers stay in their stages (`extract`, `read_catalog`).
 """
 
 from __future__ import annotations
 
+import hashlib
 import tarfile
 from pathlib import Path
 
@@ -57,3 +58,13 @@ def fetch_archive(spark: SparkSession, uri: str, local_dir: Path) -> Path:
     if not found:
         raise FileNotFoundError(f"No modules.json in {uri}: not a SentenceTransformer folder")
     return found[0].parent
+
+
+def file_md5(spark: SparkSession, path: str) -> str:
+    """
+    MD5 of a raw file's bytes. For a single-part upload it equals the S3 ETag, so it names the exact S3
+    version that was read: `aws s3api list-object-versions` shows each version's ETag (train_pipeline_mlops.md).
+    The raw CSVs are a few MB: reading them whole on the driver is fine.
+    """
+    content = spark.read.format("binaryFile").load(path).select("content").first()["content"]
+    return hashlib.md5(content).hexdigest()

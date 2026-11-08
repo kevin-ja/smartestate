@@ -1,8 +1,9 @@
 """
 T3 · Materialization logic, with no I/O (new_arch.md §3.4): which runs to delete and the smoke test's checks.
 
-Cleanup rule (P31, Kevin 2026-11-04), the same in DynamoDB and in S3:
-    keep the last 3 runs + the latest champion + the run in production. Older champions are deleted like any other run.
+Cleanup rule (P31, Kevin 2026-11-04; N from config/retention.yml since 2026-11-08), the same in S3, DynamoDB
+and the Spots FS offline clones:
+    keep the last N runs + the latest champion + the run in production. Older champions are deleted like any other run.
 """
 
 from __future__ import annotations
@@ -16,13 +17,26 @@ import numpy as np
 ONLINE_TABLE_PREFIX = "spots_fs_online_"
 ONLINE_KEY_ATTRIBUTE = "_feature_store_internal__primary_keys"  # set by publish_table
 PRODUCTION_FILE = "production.json"  # under runs/: what the CD deployed last (inference_pipeline_design.md)
-KEEP_RUNS = 3
+SNAPSHOT_SUFFIX = "_"  # spots_fs_offline -> spots_fs_offline_<run_id>, in the same schema
 NLP_DIM = 768
 FLOAT_TOLERANCE = 1e-5
 
 
 def online_table_name(run_id: str) -> str:
     return f"{ONLINE_TABLE_PREFIX}{run_id}"
+
+
+def snapshot_table_name(fs_table: str, run_id: str) -> str:
+    """Frozen copy of Spots FS offline for one run: same catalog and schema, `_<run_id>` appended."""
+    return f"{fs_table}{SNAPSHOT_SUFFIX}{run_id}"
+
+
+def keep_runs(retention: Mapping[str, Any]) -> int:
+    """keep_runs of config/retention.yml. Aborts on anything but a positive integer: cleanup deletes."""
+    keep = retention.get("keep_runs")
+    if not isinstance(keep, int) or isinstance(keep, bool) or keep < 1:
+        raise ValueError(f"retention.yml: keep_runs must be a positive integer, got {keep!r}")
+    return keep
 
 
 def production_run_id(pointer: str) -> str:
@@ -33,7 +47,7 @@ def production_run_id(pointer: str) -> str:
     return run_id
 
 
-def to_drop(created: Mapping[str, float], prefix: str, keep: int = KEEP_RUNS, protect: Iterable[str] = ()) -> list[str]:
+def to_drop(created: Mapping[str, float], prefix: str, keep: int, protect: Iterable[str] = ()) -> list[str]:
     """
     Names to delete, oldest first. `created`: name -> when it was written, in seconds.
 

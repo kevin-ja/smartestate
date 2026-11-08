@@ -65,14 +65,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   }
 
   # Las capas derivadas se reescriben en cada corrida: las versiones viejas caducan.
-  rule {
-    id     = "expirar-versiones-anteriores"
-    status = var.versioning_enabled ? "Enabled" : "Disabled"
+  # raw/ no: cada versión de un CSV es recuperable por su ETag (= MD5 en MLflow, train_pipeline_mlops.md).
+  # Un filtro de S3 no excluye prefijos, así que va una regla por capa.
+  dynamic "rule" {
+    for_each = toset([for layer in var.layers : layer if layer != "raw"])
+    content {
+      id     = "expirar-versiones-anteriores-${rule.value}"
+      status = var.versioning_enabled ? "Enabled" : "Disabled"
 
-    filter {}
+      filter {
+        prefix = "${rule.value}/"
+      }
 
-    noncurrent_version_expiration {
-      noncurrent_days = var.noncurrent_version_expiration_days
+      noncurrent_version_expiration {
+        noncurrent_days = var.noncurrent_version_expiration_days
+      }
     }
   }
 

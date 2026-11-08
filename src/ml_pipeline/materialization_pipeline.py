@@ -1,7 +1,10 @@
 """
 T3 · Materialization: Spots FS offline -> spots_fs_online_<run_id> in DynamoDB, then cleanup.
 
-    Publish -> Smoke test -> Cleanup (DynamoDB and S3)
+    Snapshot -> Publish -> Smoke test -> Cleanup (S3, DynamoDB and snapshots)
+
+The snapshot is a frozen copy of Spots FS offline, spots_fs_offline_<run_id>, logged to MLflow as the
+run's dataset: exactly what this run published, kept for rollback and audits (train_pipeline_mlops.md).
 
 Nothing is deleted unless the new table passed the smoke test. A repair run repeats the whole task:
 publishing merges and the cleanup recalculates, so it is idempotent.
@@ -16,8 +19,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
 import mlflow
+import mlflow.data
+import yaml
 from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor
@@ -26,6 +32,8 @@ from src.common.tracking import latest_champion_run_id, start_run
 from src.ml_pipeline import materialization, online_store, storage
 
 logger = logging.getLogger(__name__)
+
+RETENTION = Path(__file__).resolve().parents[2] / "config" / "retention.yml"
 
 
 class SmokeTestError(Exception):
@@ -42,7 +50,8 @@ def _smoke_test(spark: SparkSession, args: argparse.Namespace, online_table: str
 
 
 def _clean_up(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
-    """Same rule on both sides: the last 3 runs + the latest champion + production. This run is never deleted (repair runs)."""
+    """Same rule everywhere: the last N runs + the latest champion + production. This run is never deleted (repair runs)."""
+    keep = materialization.keep_runs(yaml.safe_load(RETENTION.read_text()))
     protect = {args.run_id}
     champion = latest_champion_run_id(args.experiment)
     if champion:
@@ -50,24 +59,39 @@ def _clean_up(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
     pointer = storage.read_runs_file(spark, args.runs_root, materialization.PRODUCTION_FILE)
     if pointer is not None:
         protect.add(materialization.production_run_id(pointer))
-    logger.info("cleanup: keeping the last %d runs and %s", materialization.KEEP_RUNS, sorted(protect))
+    logger.info("cleanup: keeping the last %d runs and %s", keep, sorted(protect))
 
     prefix = materialization.ONLINE_TABLE_PREFIX
-    tables = materialization.to_drop(online_store.list_tables(prefix, args.region), prefix, protect=protect)
+    tables = materialization.to_drop(online_store.list_tables(prefix, args.region), prefix, keep, protect=protect)
     for table in tables:
         online_store.delete_table(table, args.region)
 
-    folders = materialization.to_drop(storage.list_run_folders(spark, args.runs_root), "", protect=protect)
+    folders = materialization.to_drop(storage.list_run_folders(spark, args.runs_root), "", keep, protect=protect)
     for folder in folders:
         storage.delete_run_folder(spark, args.runs_root, folder)
 
-    logger.info("cleanup: deleted tables %s and run folders %s", tables, folders)
-    return {"cleanup_tables_deleted": len(tables), "cleanup_run_folders_deleted": len(folders)}
+    snapshot_prefix = materialization.snapshot_table_name(args.fs_table, "")
+    snapshots = materialization.to_drop(storage.list_snapshots(spark, args.fs_table), snapshot_prefix, keep, protect=protect)
+    for snapshot in snapshots:
+        storage.drop_table(spark, snapshot)
+
+    logger.info("cleanup: deleted tables %s, run folders %s and snapshots %s", tables, folders, snapshots)
+    return {
+        "cleanup_tables_deleted": len(tables),
+        "cleanup_run_folders_deleted": len(folders),
+        "cleanup_snapshots_deleted": len(snapshots),
+    }
 
 
 def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
     online_table = materialization.online_table_name(args.run_id)
+    snapshot = materialization.snapshot_table_name(args.fs_table, args.run_id)
     with start_run(args.experiment, args.run_id, args.git_commit):
+        with stage("snapshot_fs_offline"):
+            source_version = storage.snapshot_fs_offline(spark, args.fs_table, snapshot)
+        # The run's dataset: MLflow shows the table, its version and a digest under "Inputs".
+        mlflow.log_input(mlflow.data.load_delta(table_name=snapshot, name="spots_fs_offline"), context="training")
+        mlflow.set_tags({"fs_offline_snapshot": snapshot, "fs_offline_snapshot_source_version": source_version})
         with stage("publish_table"):
             online_store.publish(args.fs_table, online_table, args.region)
         with stage("smoke_test"):

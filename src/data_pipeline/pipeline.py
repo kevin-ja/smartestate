@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import mlflow
+import mlflow.data
 import pyspark
 from pyspark.sql import SparkSession
 
@@ -39,6 +40,9 @@ SBERT_LOCAL_DIR = Path("/local_disk0/smartestate/sbert")
 
 # Spark's default is 200: ~12 rows per partition here, and each one is a task to prepare (data_pipeline.md).
 SHUFFLE_PARTITIONS = 8
+
+# The two raw files of each ingest_date folder and their expected columns.
+RAW_FILES = {"data.csv": RAW_SPOTS_COLUMNS, "data_at.csv": RAW_ATTRIBUTES_COLUMNS}
 
 
 @dataclass
@@ -57,10 +61,8 @@ def run(spark: SparkSession, args: argparse.Namespace) -> DataPipelineResult:
     # localCheckpoint, not cache: it stores the rows and drops the query plan. A task reading a cache still
     # carries that plan, which costs ~1.5 s per task on Databricks (data_pipeline.md).
     with stage("ingestion"):
-        ingested = ingestion.transform(
-            ingestion.extract(spark, f"{folder}/data.csv", RAW_SPOTS_COLUMNS),
-            ingestion.extract(spark, f"{folder}/data_at.csv", RAW_ATTRIBUTES_COLUMNS),
-        )
+        raw = {name: ingestion.extract(spark, f"{folder}/{name}", columns) for name, columns in RAW_FILES.items()}
+        ingested = ingestion.transform(raw["data.csv"], raw["data_at.csv"])
         bronze = ingested.bronze.localCheckpoint()
         warnings = list(ingested.warnings)
         bronze_rows = bronze.count()
@@ -104,15 +106,22 @@ def run(spark: SparkSession, args: argparse.Namespace) -> DataPipelineResult:
         "with_description": with_description,
         **{f"candidates_sector_{sector}": candidates.get(sector, 0) for sector in (*TAB_DIMS, 15)},
     }
-    _log_mlflow(result.models, stats, fs_version, args)
+    with stage("raw_hash"):
+        raw_inputs = [
+            mlflow.data.from_spark(df, path=f"{folder}/{name}", name=f"raw/{name}", digest=storage.file_md5(spark, f"{folder}/{name}"))
+            for name, df in raw.items()
+        ]
+    _log_mlflow(result.models, stats, fs_version, raw_inputs, args)
     if args.spark_probes == "true":
         spark_probes.run(gold)
     return DataPipelineResult(stats, fs_version, warnings)
 
 
-def _log_mlflow(models: dict, stats: dict[str, int], fs_version: int, args: argparse.Namespace) -> None:
-    """FE models, counts, stage times and the Delta version used. Tags and metrics only: a repair run may overwrite them."""
+def _log_mlflow(models: dict, stats: dict[str, int], fs_version: int, raw_inputs: list, args: argparse.Namespace) -> None:
+    """FE models, counts, stage times, the Delta version used and the raw files read, with their MD5 as digest."""
     with start_run(args.experiment, args.run_id, args.git_commit):
+        for dataset in raw_inputs:
+            mlflow.log_input(dataset, context="raw")
         mlflow.set_tags({"ingest_date": args.ingest_date, "fs_offline_table": args.fs_table, "fs_offline_version": fs_version})
         mlflow.log_metrics(stats)
         with stage("mlflow_log_models"):
