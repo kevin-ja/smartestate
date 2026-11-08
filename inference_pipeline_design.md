@@ -79,7 +79,7 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 
 1. **Champion:** falta la regla para elegir qué corrida nueva pasa a producción.
 2. **EC2:** falta definir cómo se recupera si se cae la máquina. Si solo se cae el contenedor, lo levanta `--restart always`.
-3. **Latencia:** falta medirla desde EC2. Desde la laptop (`756577598248164`, 40 clics, sin HTTP): p50 296 ms, p95 1.136 ms y máximo 1.708 ms; esa cifra incluye la red hasta `us-east-1`, así que no vale contra la meta de ≤1 s.
+3. **Latencia: cerrada (2026-11-07).** Medida con la prueba de carga (`tests/performance/`) sobre el tiempo del servidor (`Server-Timing`), sin la red: p50 24 ms y p95 290 ms con 1 usuario; p95 470 ms con 20, el máximo dentro del SLO. Detalle: `docs/performance_report.md`.
 
 ## Procedimiento
 
