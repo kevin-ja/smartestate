@@ -52,7 +52,7 @@ def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, float]:
     with stage("write_artifacts"):
         storage.write_joblib(spark, geo_index, LOCAL_DIR / "geo_index.joblib", f"{run_dir}/geo_index.joblib")
         storage.write_joblib(spark, result.models, LOCAL_DIR / "kmeans.joblib", f"{run_dir}/kmeans.joblib")
-        storage.write_joblib(spark, result.reductions, LOCAL_DIR / "pca.joblib", f"{run_dir}/pca.joblib")
+        storage.write_joblib(spark, result.pcas, LOCAL_DIR / "pca.joblib", f"{run_dir}/pca.joblib")
         storage.write_json(spark, reranker_params, LOCAL_DIR / "reranker_params.json", f"{run_dir}/reranker_params.json")
 
     metrics = {"modeling_candidates": len(candidates), **result.metrics}

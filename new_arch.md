@@ -727,7 +727,6 @@ Esto es lo que define hoy este documento, separado en las dos etapas.
    K-means por sector); gana el mejor silhouette. El silhouette se mide **siempre en el espacio original**
    (`tab_vector ‖ nlp_vector`): medido en cada espacio PCA, ganaría la varianza más baja solo por tener
    menos dimensiones. Empate → menor varianza y menor `k`.
-   **Grilla ampliada (2026-11-11, Kevin, corrida `545586084329394`: Land 0,063):** varianza en
-   `{0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0}` (1.0 sin quitar nada = texto tal cual, como antes del PCA) ×
-   quitar los `{0, 1, 2, 3}` primeros componentes del texto ("all-but-the-top": direcciones que comparten
-   todos los embeddings de SBERT y casi no distinguen textos) × `k` de 4 a 12. 252 K-means por sector.
+   **Grilla ampliada probada y descartada (2026-11-11, Kevin):** varianza hasta 1.0 × quitar los 0–3
+   primeros componentes del texto (corrida `887042836265346`). Industrial, Office y Retail subieron solo
+   0,001–0,003 y Land de 0,063 a 0,099; el K-means pasó de 49 s a 351 s. No compensa.

@@ -57,8 +57,6 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 | `spread_counts_rows_with_and_without_text` | ¿Se cuenta bien cuántos con y sin texto hay por grupo? |
 | `land_clusters_on_text_alone` | ¿Land se agrupa solo con texto? |
 | `text_pca_rows_have_length_one` | ¿El PCA reduce el texto y deja cada fila de largo 1? |
-| `text_reduction_drops_the_top_components` | ¿Quitar los primeros componentes deja el resto con largo 1? |
-| `variance_one_without_drop_keeps_the_text_as_it_is` | ¿Varianza 1.0 sin quitar nada deja el texto igual? |
 | `search_picks_a_variance_from_the_grid_and_is_deterministic` | ¿La búsqueda varianza × k elige dentro de la grilla y siempre da lo mismo? |
 | `candidate_without_any_vector_aborts` | ¿Se detiene si un candidato no tiene ningún vector? |
 | `sector_with_too_few_rows_aborts` | ¿Se detiene si un sector tiene muy pocas filas? |

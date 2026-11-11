@@ -63,8 +63,8 @@ aws s3api get-object --bucket smartestate-lake-<cuenta> --key raw/ingest_date=<f
 **Estado actual (2026-11-08): probado.** La corrida `19942397788962` registra los cuatro hiperparámetros.
 
 T2 registra en MLflow los hiperparámetros del K-means (`kmeans_k_min`, `kmeans_k_max`, `kmeans_seed`,
-`kmeans_n_init` y, desde 2026-11-11, `pca_variances` y `pca_drop_top`; como métricas, la reducción del texto
-ganadora de cada sector: `pca_variance_sector_<s>`, `pca_drop_top_sector_<s>`, `pca_components_sector_<s>`) desde `modeling.hyperparameters()`. Antes vivían solo en el código: dos corridas no mostraban
+`kmeans_n_init` y, desde 2026-11-11, `pca_variances`; como métricas, la varianza y los componentes del PCA
+ganadores de cada sector: `pca_variance_sector_<s>`, `pca_components_sector_<s>`) desde `modeling.hyperparameters()`. Antes vivían solo en el código: dos corridas no mostraban
 por qué sus clusters difieren. Se confirma en la próxima corrida.
 
 ## Criterio 4 · Reproducibilidad
