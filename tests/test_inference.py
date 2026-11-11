@@ -98,6 +98,11 @@ def test_similarity_without_a_shared_signal_is_zero():
     assert recommender.similarity(clicked, [candidate], 0.6, 0.4) == pytest.approx([0.0])
 
 
+def test_similarity_ignores_the_length_of_tab_vector():
+    sim = recommender.similarity(spot(tab=(3.0, 4.0)), [spot(tab=(0.6, 0.8))], 1.0, 0.0)
+    assert sim == pytest.approx([1.0])
+
+
 def test_similarity_never_goes_below_zero():
     assert recommender.similarity(spot(), [spot(tab=(-1.0, 0.0), nlp=(-1.0, 0.0))], 0.6, 0.4) == pytest.approx([0.0])
 

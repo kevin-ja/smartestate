@@ -61,9 +61,12 @@ def similarity(clicked: Item, candidates: Sequence[Item], w_tab: float, w_nlp: f
         rows = [row for row, candidate in enumerate(candidates) if candidate.get(column)]
         if not reference or not rows:
             continue
-        # Vectors have length 1, so the dot product is the cosine.
+        # Full cosine: tab_vector does not have length 1 (only nlp_vector does).
         matrix = np.array([candidates[row][column] for row in rows], dtype=float)
-        weighted[rows] += weight * (matrix @ np.array(reference, dtype=float))
+        reference = np.array(reference, dtype=float)
+        norms = np.linalg.norm(matrix, axis=1) * np.linalg.norm(reference)
+        cosine = np.divide(matrix @ reference, norms, out=np.zeros(len(rows)), where=norms > 0)
+        weighted[rows] += weight * cosine
         weights[rows] += weight
     sim = np.divide(weighted, weights, out=np.zeros_like(weighted), where=weights > 0)
     # sim is documented in [0, 1]. A negative one would rise when f(r) or delta shrink it.

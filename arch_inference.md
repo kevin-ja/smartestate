@@ -77,7 +77,7 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ 5 · NIVEL 3A · SIMILITUD                                 numpy, una fórmula  │
 │ ENTRA  vectores del clickeado (A) + matriz de candidatos (B)                 │
-│ CÓMO   cos = producto punto (los vectores vienen normalizados a largo 1)     │
+│ CÓMO   cos completo = producto punto / (largo de A · largo de B)             │
 │          cos_tab = M_tab @ A_tab      cos_nlp = M_nlp @ A_nlp                │
 │        sim = Σ(wᵢ·cosᵢ) / Σ(wᵢ)   solo con las señales que tienen A y B      │
 │          · nlp_vector nulo (sin descripción) → no entra                      │
