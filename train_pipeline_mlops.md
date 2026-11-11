@@ -82,7 +82,7 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 
 ## Criterio 6 · Evaluación del modelo
 
-**Estado actual (2026-11-11): implementado y con tests; falta probarlo en Databricks.** Código: `src/ml_pipeline/evaluation.py` y `modeling.score_models`; T2 lo corre en la etapa `evaluate` y escribe `runs/<run_id>/metrics.json`.
+**Estado actual (2026-11-11): probado.** Corrida A `998489633886953` sin champion → gana (0,2492). Corrida B `899127213861803`, mismos datos → el champion medido sobre sus candidatos da 0,2492, idéntico al suyo: no supera el margen y no se promueve. Código: `src/ml_pipeline/evaluation.py` y `modeling.score_models`; T2 lo corre en la etapa `evaluate` y escribe `runs/<run_id>/metrics.json`.
 
 | Decisión | Por qué |
 |---|---|
@@ -94,7 +94,7 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 
 ## Criterio 7 · Registro de modelos
 
-**Estado actual (2026-11-11): implementado y con tests; falta probarlo en Databricks.** T3 promueve en la etapa `promote`, después del smoke test y antes de la limpieza (un champion siempre tiene su tabla). La limpieza protege al de `champion.json`.
+**Estado actual (2026-11-11): probado.** A creó `runs/champion.json` → `998489633886953` y el tag `champion=true`; B no lo movió (`promoted_champion` 0). La limpieza conservó la carpeta del champion y la de producción. T3 promueve en la etapa `promote`, después del smoke test y antes de la limpieza (un champion siempre tiene su tabla). La limpieza protege al de `champion.json`.
 
 | Decisión | Por qué |
 |---|---|
