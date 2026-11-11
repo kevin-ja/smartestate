@@ -5,12 +5,14 @@ Who enters each sector's K-means:
     With text      tab_vector ‖ PCA(nlp_vector), or PCA(nlp_vector) alone where the sector has no tab_vector
                    (Land). Only these rows train the model. The PCA is fitted per sector on these rows and
                    its output is brought back to length 1.
-
-Search per sector: every PCA variance in PCA_VARIANCES × every k in K_VALUES. The silhouette is always
-measured in the original space (tab_vector ‖ nlp_vector): measured in each PCA space, the lowest variance
-would win only because it has fewer dimensions.
     Without text   Nearest centroid measured on tab_vector alone. Zeros in place of the text would make
                    these rows look alike and form an artificial group.
+
+Search per sector: PCA variance (PCA_VARIANCES) × top components dropped (PCA_DROP_TOP) × k (K_VALUES).
+Variance 1.0 keeps every component; with nothing dropped, the text goes in as it is (no PCA). Dropping
+the top components removes the few directions SBERT embeddings share, which tell texts apart little
+("all-but-the-top"). The silhouette is always measured in the original space (tab_vector ‖ nlp_vector):
+measured in each PCA space, the lowest variance would win only because it has fewer dimensions.
 
 A cluster_id means something only within its sector, which is all the re-ranker compares (Filter 2).
 """
@@ -34,7 +36,8 @@ if TYPE_CHECKING:
 K_VALUES = range(4, 13)
 SEED = 0
 KMEANS_RESTARTS = 10
-PCA_VARIANCES = (0.70, 0.80, 0.90, 0.95)  # share of the text variance the PCA keeps
+PCA_VARIANCES = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0)  # share of the text variance the PCA keeps
+PCA_DROP_TOP = (0, 1, 2, 3)  # top principal components removed from the text
 
 
 def hyperparameters() -> dict[str, int | str]:
@@ -45,6 +48,7 @@ def hyperparameters() -> dict[str, int | str]:
         "kmeans_seed": SEED,
         "kmeans_n_init": KMEANS_RESTARTS,
         "pca_variances": ",".join(map(str, PCA_VARIANCES)),
+        "pca_drop_top": ",".join(map(str, PCA_DROP_TOP)),
     }
 
 
@@ -53,11 +57,19 @@ class ModelingError(Exception):
 
 
 @dataclass
+class TextReduction:
+    variance: float       # share of the text variance kept
+    drop_top: int         # top components removed
+    pca: PCA | None       # None: the text went in as it is
+    components: int       # text columns that reached the K-means
+
+
+@dataclass
 class ClusteringResult:
     clusters: pd.DataFrame            # spot_id, cluster_id: one row per candidate
     models: dict[int, KMeans]         # sector_id -> fitted model
-    pcas: dict[int, PCA]              # sector_id -> PCA fitted on the sector's text
-    metrics: dict[str, float]         # chosen k, PCA variance and components, and silhouette per sector
+    reductions: dict[int, TextReduction]  # sector_id -> how the sector's text was reduced
+    metrics: dict[str, float]         # chosen k, text reduction and silhouette per sector
     spread: dict[str, dict[str, dict[str, int]]]  # sector -> cluster -> rows with and without text
 
 
@@ -94,16 +106,23 @@ def _matrix(column: pd.Series) -> np.ndarray:
     return np.vstack(column.to_numpy()).astype(np.float64)
 
 
-def reduce_text(text: np.ndarray, variance: float) -> tuple[np.ndarray, PCA]:
-    """PCA keeping `variance` of the variance, then each row back to length 1."""
-    pca = PCA(n_components=variance, svd_solver="full").fit(text)
-    reduced = pca.transform(text)
+def reduce_text(text: np.ndarray, variance: float, drop_top: int = 0) -> tuple[np.ndarray, TextReduction] | None:
+    """
+    PCA keeping `variance` of the variance, without its first `drop_top` components, then each row back
+    to length 1. Variance 1.0 with nothing dropped returns the text as it is. None: nothing would be left.
+    """
+    if variance >= 1.0 and drop_top == 0:
+        return text, TextReduction(variance, 0, None, text.shape[1])
+    pca = PCA(n_components=variance if variance < 1.0 else None, svd_solver="full").fit(text)
+    if pca.n_components_ <= drop_top:
+        return None
+    reduced = pca.transform(text)[:, drop_top:]
     norms = np.linalg.norm(reduced, axis=1, keepdims=True)
-    return reduced / np.where(norms > 0, norms, 1.0), pca
+    return reduced / np.where(norms > 0, norms, 1.0), TextReduction(variance, drop_top, pca, reduced.shape[1])
 
 
-def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndarray, KMeans, PCA, float]:
-    """cluster_id of each row, in order, plus the model, the text PCA and the silhouette."""
+def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndarray, KMeans, TextReduction, float]:
+    """cluster_id of each row, in order, plus the model, the text reduction and the silhouette."""
     with_tab = rows["tab_vector"].notna().to_numpy()
     with_text = rows["nlp_vector"].notna().to_numpy()
     uses_tab = with_tab.any()
@@ -117,34 +136,38 @@ def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndar
     text = _matrix(rows.loc[with_text, "nlp_vector"])
     tab = _matrix(rows.loc[with_text, "tab_vector"]) if uses_tab else None
     original = np.hstack([tab, text]) if uses_tab else text
-    distances = pairwise_distances(original)  # computed once, reused by every (variance, k)
+    distances = pairwise_distances(original)  # computed once, reused by every (variance, drop, k)
 
-    model, pca, score = None, None, -np.inf
-    for variance in PCA_VARIANCES:  # a tie keeps the lower variance
-        reduced, candidate_pca = reduce_text(text, variance)
-        training = np.hstack([tab, reduced]) if uses_tab else reduced
-        candidate, candidate_score = fit_kmeans(training, seed, distances)
-        if candidate_score > score:
-            model, pca, score = candidate, candidate_pca, candidate_score
+    model, reduction, score = None, None, -np.inf
+    for variance in PCA_VARIANCES:  # a tie keeps the lower variance, then the fewer dropped
+        for drop_top in PCA_DROP_TOP:
+            reduced = reduce_text(text, variance, drop_top)
+            if reduced is None:
+                continue
+            training = np.hstack([tab, reduced[0]]) if uses_tab else reduced[0]
+            candidate, candidate_score = fit_kmeans(training, seed, distances)
+            if candidate_score > score:
+                model, reduction, score = candidate, reduced[1], candidate_score
 
     labels = np.empty(len(rows), dtype=np.int32)
     labels[with_text] = model.labels_
     if not with_text.all():
         labels[~with_text] = nearest_by_tab(model, _matrix(rows.loc[~with_text, "tab_vector"]))
-    return labels, model, pca, score
+    return labels, model, reduction, score
 
 
 def cluster_candidates(candidates: pd.DataFrame, seed: int = SEED) -> ClusteringResult:
     """One K-means per sector. `candidates`: spot_id, sector_id, tab_vector and nlp_vector, sorted by spot_id."""
-    parts, models, pcas, metrics, spread = [], {}, {}, {}, {}
+    parts, models, reductions, metrics, spread = [], {}, {}, {}, {}
     for sector, rows in candidates.groupby("sector_id", sort=True):
         sector = int(sector)
-        labels, models[sector], pcas[sector], score = _cluster_sector(sector, rows, seed)
+        labels, models[sector], reductions[sector], score = _cluster_sector(sector, rows, seed)
         parts.append(pd.DataFrame({"spot_id": rows["spot_id"].to_numpy(), "cluster_id": labels}))
         metrics[f"kmeans_k_sector_{sector}"] = models[sector].n_clusters
         metrics[f"silhouette_sector_{sector}"] = score
-        metrics[f"pca_variance_sector_{sector}"] = pcas[sector].n_components
-        metrics[f"pca_components_sector_{sector}"] = pcas[sector].n_components_
+        metrics[f"pca_variance_sector_{sector}"] = reductions[sector].variance
+        metrics[f"pca_drop_top_sector_{sector}"] = reductions[sector].drop_top
+        metrics[f"pca_components_sector_{sector}"] = reductions[sector].components
 
         with_text = rows["nlp_vector"].notna().to_numpy()
         spread[str(sector)] = {
@@ -155,7 +178,7 @@ def cluster_candidates(candidates: pd.DataFrame, seed: int = SEED) -> Clustering
             for cluster in range(models[sector].n_clusters)
         }
     clusters = pd.concat(parts).sort_values("spot_id", ignore_index=True)
-    return ClusteringResult(clusters, models, pcas, metrics, spread)
+    return ClusteringResult(clusters, models, reductions, metrics, spread)
 
 
 def build_geo_index(candidates: pd.DataFrame) -> GeoIndex:

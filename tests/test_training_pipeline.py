@@ -298,7 +298,7 @@ def test_land_clusters_on_text_alone():
     modeling = pytest.importorskip("src.ml_pipeline.modeling")
     _, texts, _, _ = _two_groups()
     result = modeling.cluster_candidates(_candidates(None, texts, sector_id=15))
-    assert result.models[15].cluster_centers_.shape[1] == result.pcas[15].n_components_
+    assert result.models[15].cluster_centers_.shape[1] == result.reductions[15].components
     assert len(result.clusters) == 16
 
 
@@ -329,16 +329,33 @@ def test_hyperparameters_match_what_the_kmeans_uses():
     modeling = pytest.importorskip("src.ml_pipeline.modeling")
     assert modeling.hyperparameters() == {
         "kmeans_k_min": 4, "kmeans_k_max": 12, "kmeans_seed": 0, "kmeans_n_init": 10,
-        "pca_variances": "0.7,0.8,0.9,0.95",
+        "pca_variances": "0.5,0.6,0.7,0.8,0.9,0.95,1.0", "pca_drop_top": "0,1,2,3",
     }
 
 
 def test_text_pca_rows_have_length_one():
     modeling = pytest.importorskip("src.ml_pipeline.modeling")
     text = np.random.default_rng(0).normal(size=(40, 16))
-    reduced, pca = modeling.reduce_text(text, 0.9)
-    assert reduced.shape == (40, pca.n_components_) and pca.n_components_ < 16
+    reduced, reduction = modeling.reduce_text(text, 0.9)
+    assert reduced.shape == (40, reduction.components) and reduction.components < 16
     np.testing.assert_allclose(np.linalg.norm(reduced, axis=1), 1.0)
+
+
+def test_text_reduction_drops_the_top_components():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    text = np.random.default_rng(0).normal(size=(40, 16))
+    full, _ = modeling.reduce_text(text, 0.9)
+    dropped, reduction = modeling.reduce_text(text, 0.9, drop_top=2)
+    assert reduction.components == full.shape[1] - 2
+    np.testing.assert_allclose(np.linalg.norm(dropped, axis=1), 1.0)
+    assert modeling.reduce_text(text[:, :2], 0.9, drop_top=3) is None  # nothing would be left
+
+
+def test_variance_one_without_drop_keeps_the_text_as_it_is():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    text = np.random.default_rng(0).normal(size=(40, 16))
+    same, reduction = modeling.reduce_text(text, 1.0)
+    assert same is text and reduction.pca is None
 
 
 def test_search_picks_a_variance_from_the_grid_and_is_deterministic():
@@ -346,6 +363,7 @@ def test_search_picks_a_variance_from_the_grid_and_is_deterministic():
     tabs, texts, _, _ = _two_groups()
     first = modeling.cluster_candidates(_candidates(tabs, texts))
     assert first.metrics["pca_variance_sector_9"] in modeling.PCA_VARIANCES
+    assert first.metrics["pca_drop_top_sector_9"] in modeling.PCA_DROP_TOP
     assert first.metrics["kmeans_k_sector_9"] in modeling.K_VALUES
     again = modeling.cluster_candidates(_candidates(tabs, texts))
     assert first.metrics == again.metrics
