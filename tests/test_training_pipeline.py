@@ -351,6 +351,63 @@ def test_search_picks_a_variance_from_the_grid_and_is_deterministic():
     assert first.metrics == again.metrics
 
 
+def test_champion_scored_on_the_same_data_reproduces_its_silhouette():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, _, _ = _two_groups()
+    frame = _candidates(tabs, texts)
+    result = modeling.cluster_candidates(frame)
+    scores = modeling.score_models(result.models, result.pcas, frame)
+    assert scores == pytest.approx(result.scores)
+    assert result.candidates == {9: 16}
+
+
+def test_champion_without_a_model_for_a_sector_cannot_compete():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, _, _ = _two_groups()
+    champion = modeling.cluster_candidates(_candidates(tabs, texts))
+    land = _candidates(None, texts, sector_id=15)
+    assert modeling.score_models(champion.models, champion.pcas, land) is None
+
+
+def test_weighted_silhouette_weights_by_candidates():
+    evaluation = pytest.importorskip("src.ml_pipeline.evaluation")
+    assert evaluation.weighted_silhouette({9: 0.3, 15: 0.1}, {9: 300, 15: 100}) == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("new, champion, expected", [
+    (0.30, None, True),     # no champion yet
+    (0.30, 0.25, True),     # beats it by more than the margin
+    (0.26, 0.25, False),    # within the margin: noise
+    (0.20, 0.25, False),    # worse
+])
+def test_new_run_wins_only_beyond_the_margin(new, champion, expected):
+    evaluation = pytest.importorskip("src.ml_pipeline.evaluation")
+    assert evaluation.wins(new, champion) is expected
+
+
+def test_report_compares_both_runs_on_the_same_weights():
+    evaluation = pytest.importorskip("src.ml_pipeline.evaluation")
+    report = evaluation.report("2", {9: 0.30, 15: 0.10}, {9: 300, 15: 100}, "1", {9: 0.20, 15: 0.10})
+    assert report["silhouette_weighted"] == pytest.approx(0.25)
+    assert report["champion"] == {"run_id": "1", "silhouette_weighted": pytest.approx(0.175)}
+    assert report["wins"] is True
+    lost = evaluation.report("2", {9: 0.30}, {9: 300}, "1", {9: 0.295})
+    assert lost["wins"] is False
+
+
+def test_report_without_a_comparable_champion_wins():
+    evaluation = pytest.importorskip("src.ml_pipeline.evaluation")
+    assert evaluation.report("2", {9: 0.1}, {9: 10}, None, None)["champion"] is None
+    assert evaluation.report("2", {9: 0.1}, {9: 10}, "1", None)["wins"] is True
+
+
+def test_champion_run_id_reads_the_pointer():
+    materialization = pytest.importorskip("src.ml_pipeline.materialization")
+    assert materialization.champion_run_id('{"run_id": "545586084329394"}') == "545586084329394"
+    with pytest.raises(ValueError, match="champion.json"):
+        materialization.champion_run_id('{"run_id": "../x"}')
+
+
 # ── T3 · materialization (plan, Phase 4) ──────────────────────────────────────
 # Same rule on both sides (P31): spots_fs_online_<run_id> in DynamoDB and runs/<run_id>/ in S3.
 # publish_table and the real GetItem (plan 4.3) need AWS: they are runtime checks, not here.

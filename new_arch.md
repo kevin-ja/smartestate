@@ -308,7 +308,7 @@ Es la integración entre los dos feature stores. Corre después del modeling pip
    `table_name`,
    [API](https://api-docs.databricks.com/python/feature-engineering/latest/ml_features.online_store_spec.html)).
 2. **Limpiar (P31, Kevin 2026-11-04):** en DynamoDB (`spots_fs_online_*`) y en S3 (`runs/<run_id>/`) quedan las últimas 3
-   corridas, **el último champion y la corrida en producción** (`runs/production.json`, que escribe el CD). Los champions anteriores se borran.
+   corridas, **el último champion** (`runs/champion.json`, desde 2026-11-11) **y la corrida en producción** (`runs/production.json`, que escribe el CD). Los champions anteriores se borran.
    Solo se limpia si la tabla nueva pasó el smoke test. **El orden es por fecha real** (`CreationDateTime` en DynamoDB,
    fecha de los archivos en S3): el `run_id` de Databricks no crece con el tiempo.
 
@@ -352,6 +352,10 @@ la máquina (parches, Docker, reinicios y despliegues). Con una sola instancia, 
 
 **Qué corrida carga (P20):** la resuelve el **CD**, no el servicio.
 
+* **Actualizado 2026-11-11 (Kevin):** el champion vive en `runs/champion.json` (S3) y lo promueve el
+  entrenamiento solo, si gana la evaluación (`train_pipeline_mlops.md`, criterios 6 y 7). El tag de MLflow
+  queda como espejo, porque su historial se pierde al destruir el workspace. Producción es manual
+  (`make set-production-run`). Lo que sigue en esta lista es el diseño original del 2026-10-22.
 * El entrenamiento registra la corrida en MLflow (Databricks); la aprobada lleva el **tag de corrida**
   `champion=true` (2026-10-22, Kevin). Tag y no alias: los alias de MLflow son del Model Registry, y
   aquí no se registra ningún modelo. Una sola corrida lleva el tag a la vez.
@@ -730,3 +734,7 @@ Esto es lo que define hoy este documento, separado en las dos etapas.
    **Grilla ampliada probada y descartada (2026-11-11, Kevin):** varianza hasta 1.0 × quitar los 0–3
    primeros componentes del texto (corrida `887042836265346`). Industrial, Office y Retail subieron solo
    0,001–0,003 y Land de 0,063 a 0,099; el K-means pasó de 49 s a 351 s. No compensa.
+   **Optimización del K-means cerrada (2026-11-11, Kevin):** el K-means tiene límites en esta etapa y se
+   acepta. Es un componente secundario de la cascada: el `cluster_id` solo mejora la diversidad del top N
+   (3C), no filtra candidatos. Un silhouette bajo (0,06–0,28) es tolerable: el K-means complementa la
+   calidad, no la determina.

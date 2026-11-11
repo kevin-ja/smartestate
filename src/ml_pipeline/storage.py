@@ -1,4 +1,4 @@
-"""I/O of the modeling pipeline: read the candidates, write the artifacts and cluster_id."""
+"""I/O of the modeling pipeline: read the candidates, write the artifacts and cluster_id, move the champion."""
 
 from __future__ import annotations
 
@@ -64,6 +64,23 @@ def read_runs_file(spark: SparkSession, runs_root: str, name: str) -> str | None
         if entry.name == name:
             return dbutils.fs.head(entry.path)
     return None
+
+
+def read_text(spark: SparkSession, path: str) -> str:
+    """A small text file in S3 (metrics.json, a pointer). Raises if it does not exist."""
+    return _dbutils(spark).fs.head(path, 1024 * 1024)
+
+
+def write_text(spark: SparkSession, path: str, text: str) -> None:
+    """Writes or replaces a small text file in S3 (runs/champion.json)."""
+    _dbutils(spark).fs.put(path, text, overwrite=True)
+
+
+def read_joblib(spark: SparkSession, source: str, local: Path) -> Any:
+    """Copies an artifact of runs/<run_id>/ to the driver's disk and loads it (the champion's models)."""
+    local.parent.mkdir(parents=True, exist_ok=True)
+    _dbutils(spark).fs.cp(source, f"file:{local}")
+    return joblib.load(local)
 
 
 def delete_run_folder(spark: SparkSession, runs_root: str, folder: str) -> None:

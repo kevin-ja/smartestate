@@ -79,3 +79,26 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 
 **Prueba:** dos corridas sobre los mismos datos → mismo `cluster_id` y mismos vectores, comparando sus tablas
 `spots_fs_online_<run_id>` en DynamoDB.
+
+## Criterio 6 · Evaluación del modelo
+
+**Estado actual (2026-11-11): implementado y con tests; falta probarlo en Databricks.** Código: `src/ml_pipeline/evaluation.py` y `modeling.score_models`; T2 lo corre en la etapa `evaluate` y escribe `runs/<run_id>/metrics.json`.
+
+| Decisión | Por qué |
+|---|---|
+| Métrica: silhouette **promedio ponderado** por la cantidad de candidatos de cada sector | Un sector con más spots pesa más; Land (pocos, solo texto) no arrastra el total |
+| El champion se mide **sobre los mismos datos** que la corrida nueva: se cargan sus `kmeans.joblib` y `pca.joblib`, se asignan los candidatos nuevos y se calcula su silhouette | Con datos distintos, una corrida ganaría o perdería por los datos, no por el modelo |
+| Gana la corrida nueva si supera al champion por **más de 0,01** | ~3 veces el ruido observado (0,003 al cambiar la grilla) y ~4 % del score actual (~0,25) |
+| Si no gana: se registran sus métricas y **no se promueve**. La corrida no falla | El K-means es secundario (`new_arch.md`): perder no es un error |
+| Sin champion previo: la corrida gana | Primera corrida |
+
+## Criterio 7 · Registro de modelos
+
+**Estado actual (2026-11-11): implementado y con tests; falta probarlo en Databricks.** T3 promueve en la etapa `promote`, después del smoke test y antes de la limpieza (un champion siempre tiene su tabla). La limpieza protege al de `champion.json`.
+
+| Decisión | Por qué |
+|---|---|
+| Cada corrida guarda sus métricas en `runs/<run_id>/metrics.json`, junto a sus modelos | El historial de MLflow se pierde al destruir el workspace (visto el 2026-11-11); S3 no |
+| El champion es un puntero en S3, `runs/champion.json` (como `production.json`). Reemplaza al tag `champion=true` del 2026-10-22, que queda como espejo en MLflow | Mismo motivo: el tag no sobrevive al workspace |
+| Promoción a champion: **automática**, cuando gana según el criterio 6 | Kevin |
+| Pase a producción: **manual** (`make set-production-run`) | Producción también depende de desplegar la inferencia; lo decide Kevin |

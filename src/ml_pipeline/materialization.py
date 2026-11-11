@@ -3,7 +3,8 @@ T3 · Materialization logic, with no I/O (new_arch.md §3.4): which runs to dele
 
 Cleanup rule (P31, Kevin 2026-11-04; N from config/retention.yml since 2026-11-08), the same in S3, DynamoDB
 and the Spots FS offline clones:
-    keep the last N runs + the latest champion + the run in production. Older champions are deleted like any other run.
+    keep the last N runs + the champion (runs/champion.json) + the run in production. Older champions are deleted
+    like any other run.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import numpy as np
 ONLINE_TABLE_PREFIX = "spots_fs_online_"
 ONLINE_KEY_ATTRIBUTE = "_feature_store_internal__primary_keys"  # set by publish_table
 PRODUCTION_FILE = "production.json"  # under runs/: what the CD deployed last (inference_pipeline_design.md)
+CHAMPION_FILE = "champion.json"  # under runs/: the best run so far (train_pipeline_mlops.md, criterion 7)
 SNAPSHOT_SUFFIX = "_"  # spots_fs_offline -> spots_fs_offline_<run_id>, in the same schema
 NLP_DIM = 768
 FLOAT_TOLERANCE = 1e-5
@@ -39,12 +41,22 @@ def keep_runs(retention: Mapping[str, Any]) -> int:
     return keep
 
 
-def production_run_id(pointer: str) -> str:
-    """run_id of production.json. Aborts if it cannot read it: the cleanup could delete what is in production."""
+def pointer_run_id(pointer: str, name: str) -> str:
+    """run_id of a pointer under runs/. Aborts if it cannot read it: the cleanup could delete what it protects."""
     run_id = str(json.loads(pointer)["run_id"])
     if not run_id.isdigit():
-        raise ValueError(f"{PRODUCTION_FILE}: run_id is not a number: {run_id!r}")
+        raise ValueError(f"{name}: run_id is not a number: {run_id!r}")
     return run_id
+
+
+def production_run_id(pointer: str) -> str:
+    """run_id of production.json."""
+    return pointer_run_id(pointer, PRODUCTION_FILE)
+
+
+def champion_run_id(pointer: str) -> str:
+    """run_id of champion.json."""
+    return pointer_run_id(pointer, CHAMPION_FILE)
 
 
 def to_drop(created: Mapping[str, float], prefix: str, keep: int, protect: Iterable[str] = ()) -> list[str]:

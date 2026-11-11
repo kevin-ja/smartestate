@@ -1,7 +1,11 @@
 """
 T3 · Materialization: Spots FS offline -> spots_fs_online_<run_id> in DynamoDB, then cleanup.
 
-    Snapshot -> Publish -> Smoke test -> Cleanup (S3, DynamoDB and snapshots)
+    Snapshot -> Publish -> Smoke test -> Promote -> Cleanup (S3, DynamoDB and snapshots)
+
+Promote (criterion 7): if T2's metrics.json says this run beats the champion, runs/champion.json points to
+it, with champion=true in MLflow as a mirror. Only after the smoke test: a champion always has its table.
+Production stays manual (make set-production-run).
 
 The snapshot is a frozen copy of Spots FS offline, spots_fs_offline_<run_id>, logged to MLflow as the
 run's dataset: exactly what this run published, kept for rollback and audits (train_pipeline_mlops.md).
@@ -18,6 +22,7 @@ Run (Databricks, bundles/data/resources/data_pipeline_job.yml):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
@@ -28,8 +33,8 @@ from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor
 from src.common.run_monitor import stage
-from src.common.tracking import latest_champion_run_id, start_run
-from src.ml_pipeline import materialization, online_store, storage
+from src.common.tracking import move_champion_tag, start_run
+from src.ml_pipeline import evaluation, materialization, online_store, storage
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +54,26 @@ def _smoke_test(spark: SparkSession, args: argparse.Namespace, online_table: str
         raise SmokeTestError(f"{online_table}:\n  " + "\n  ".join(errors))
 
 
+def _promote(spark: SparkSession, args: argparse.Namespace) -> bool:
+    """Points runs/champion.json to this run if T2's evaluation says it wins. Returns whether it did."""
+    runs_root = args.runs_root.rstrip("/")
+    report = json.loads(storage.read_text(spark, f"{runs_root}/{args.run_id}/{evaluation.METRICS_FILE}"))
+    if not report["wins"]:
+        logger.info("promote: %s does not beat the champion, which stays", args.run_id)
+        return False
+    storage.write_text(spark, f"{runs_root}/{materialization.CHAMPION_FILE}", json.dumps({"run_id": args.run_id}))
+    move_champion_tag(args.experiment)
+    logger.info("promote: %s is the new champion", args.run_id)
+    return True
+
+
 def _clean_up(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
-    """Same rule everywhere: the last N runs + the latest champion + production. This run is never deleted (repair runs)."""
+    """Same rule everywhere: the last N runs + the champion + production. This run is never deleted (repair runs)."""
     keep = materialization.keep_runs(yaml.safe_load(RETENTION.read_text()))
     protect = {args.run_id}
-    champion = latest_champion_run_id(args.experiment)
-    if champion:
-        protect.add(champion)
+    champion = storage.read_runs_file(spark, args.runs_root, materialization.CHAMPION_FILE)
+    if champion is not None:
+        protect.add(materialization.champion_run_id(champion))
     pointer = storage.read_runs_file(spark, args.runs_root, materialization.PRODUCTION_FILE)
     if pointer is not None:
         protect.add(materialization.production_run_id(pointer))
@@ -97,8 +115,11 @@ def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, int]:
         with stage("smoke_test"):
             _smoke_test(spark, args, online_table)
         mlflow.set_tag("online_table", online_table)
+        with stage("promote"):
+            promoted = _promote(spark, args)
         with stage("cleanup"):
             metrics = _clean_up(spark, args)
+        metrics["promoted_champion"] = int(promoted)
         mlflow.log_metrics(metrics)
         mlflow.log_metrics({f"duration_{name}_s": seconds for name, seconds in run_monitor.durations().items()})
     return metrics

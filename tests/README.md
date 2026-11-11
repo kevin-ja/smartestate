@@ -60,6 +60,12 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 | `search_picks_a_variance_from_the_grid_and_is_deterministic` | ¿La búsqueda varianza × k elige dentro de la grilla y siempre da lo mismo? |
 | `candidate_without_any_vector_aborts` | ¿Se detiene si un candidato no tiene ningún vector? |
 | `sector_with_too_few_rows_aborts` | ¿Se detiene si un sector tiene muy pocas filas? |
+| `champion_scored_on_the_same_data_reproduces_its_silhouette` | ¿Medir un modelo ya entrenado sobre sus datos da su mismo silhouette? |
+| `champion_without_a_model_for_a_sector_cannot_compete` | ¿Un champion sin modelo para un sector queda fuera de la comparación? |
+| `weighted_silhouette_weights_by_candidates` | ¿El promedio pesa cada sector por sus candidatos? |
+| `new_run_wins_only_beyond_the_margin` | ¿Solo gana si supera al champion por más de 0,01? |
+| `report_*` | ¿`metrics.json` compara las dos corridas con los mismos pesos? |
+| `champion_run_id_reads_the_pointer` | ¿Se lee bien `champion.json` y se rechaza uno roto? |
 | `cluster_id_only_for_candidates` | ¿Solo los candidatos reciben grupo? |
 | `cleanup_orders_by_date_not_by_run_id` | ¿Se borran las corridas más viejas por fecha, no por número? |
 | `cleanup_applies_the_prefix_and_ignores_other_tables` | ¿La limpieza solo toca las tablas de corridas? |

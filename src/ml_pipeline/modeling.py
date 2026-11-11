@@ -57,6 +57,8 @@ class ClusteringResult:
     clusters: pd.DataFrame            # spot_id, cluster_id: one row per candidate
     models: dict[int, KMeans]         # sector_id -> fitted model
     pcas: dict[int, PCA]              # sector_id -> PCA fitted on the sector's text
+    scores: dict[int, float]          # sector_id -> silhouette, in the original space
+    candidates: dict[int, int]        # sector_id -> candidates, the weight of its silhouette (criterion 6)
     metrics: dict[str, float]         # chosen k, PCA variance and components, and silhouette per sector
     spread: dict[str, dict[str, dict[str, int]]]  # sector -> cluster -> rows with and without text
 
@@ -94,16 +96,21 @@ def _matrix(column: pd.Series) -> np.ndarray:
     return np.vstack(column.to_numpy()).astype(np.float64)
 
 
+def _project(pca: PCA, text: np.ndarray) -> np.ndarray:
+    """Text through a fitted PCA, then each row back to length 1."""
+    reduced = pca.transform(text)
+    norms = np.linalg.norm(reduced, axis=1, keepdims=True)
+    return reduced / np.where(norms > 0, norms, 1.0)
+
+
 def reduce_text(text: np.ndarray, variance: float) -> tuple[np.ndarray, PCA]:
     """PCA keeping `variance` of the variance, then each row back to length 1."""
     pca = PCA(n_components=variance, svd_solver="full").fit(text)
-    reduced = pca.transform(text)
-    norms = np.linalg.norm(reduced, axis=1, keepdims=True)
-    return reduced / np.where(norms > 0, norms, 1.0), pca
+    return _project(pca, text), pca
 
 
-def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndarray, KMeans, PCA, float]:
-    """cluster_id of each row, in order, plus the model, the text PCA and the silhouette."""
+def _sector_inputs(sector: int, rows: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
+    """Rows with text (mask), their tab_vector (None in Land) and their nlp_vector. Aborts on a broken sector."""
     with_tab = rows["tab_vector"].notna().to_numpy()
     with_text = rows["nlp_vector"].notna().to_numpy()
     uses_tab = with_tab.any()
@@ -113,11 +120,21 @@ def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndar
         raise ModelingError(f"Sector {sector}: {(~with_text).sum()} candidates have neither tab_vector nor text")
     if not with_text.any():
         raise ModelingError(f"Sector {sector}: no candidate has text to train on")
-
     text = _matrix(rows.loc[with_text, "nlp_vector"])
     tab = _matrix(rows.loc[with_text, "tab_vector"]) if uses_tab else None
-    original = np.hstack([tab, text]) if uses_tab else text
-    distances = pairwise_distances(original)  # computed once, reused by every (variance, k)
+    return with_text, tab, text
+
+
+def _original_distances(tab: np.ndarray | None, text: np.ndarray) -> np.ndarray:
+    """Pairwise distances in tab_vector ‖ nlp_vector: the one space every silhouette is measured in."""
+    return pairwise_distances(np.hstack([tab, text]) if tab is not None else text)
+
+
+def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndarray, KMeans, PCA, float]:
+    """cluster_id of each row, in order, plus the model, the text PCA and the silhouette."""
+    with_text, tab, text = _sector_inputs(sector, rows)
+    uses_tab = tab is not None
+    distances = _original_distances(tab, text)  # computed once, reused by every (variance, k)
 
     model, pca, score = None, None, -np.inf
     for variance in PCA_VARIANCES:  # a tie keeps the lower variance
@@ -136,10 +153,11 @@ def _cluster_sector(sector: int, rows: pd.DataFrame, seed: int) -> tuple[np.ndar
 
 def cluster_candidates(candidates: pd.DataFrame, seed: int = SEED) -> ClusteringResult:
     """One K-means per sector. `candidates`: spot_id, sector_id, tab_vector and nlp_vector, sorted by spot_id."""
-    parts, models, pcas, metrics, spread = [], {}, {}, {}, {}
+    parts, models, pcas, scores, counts, metrics, spread = [], {}, {}, {}, {}, {}, {}
     for sector, rows in candidates.groupby("sector_id", sort=True):
         sector = int(sector)
         labels, models[sector], pcas[sector], score = _cluster_sector(sector, rows, seed)
+        scores[sector], counts[sector] = score, len(rows)
         parts.append(pd.DataFrame({"spot_id": rows["spot_id"].to_numpy(), "cluster_id": labels}))
         metrics[f"kmeans_k_sector_{sector}"] = models[sector].n_clusters
         metrics[f"silhouette_sector_{sector}"] = score
@@ -155,7 +173,28 @@ def cluster_candidates(candidates: pd.DataFrame, seed: int = SEED) -> Clustering
             for cluster in range(models[sector].n_clusters)
         }
     clusters = pd.concat(parts).sort_values("spot_id", ignore_index=True)
-    return ClusteringResult(clusters, models, pcas, metrics, spread)
+    return ClusteringResult(clusters, models, pcas, scores, counts, metrics, spread)
+
+
+def score_models(models: dict[int, KMeans], pcas: dict[int, PCA], candidates: pd.DataFrame) -> dict[int, float] | None:
+    """
+    Silhouette per sector of already fitted models (the champion's) on these candidates, measured like the
+    new run's: same rows with text, same original space. None if a sector has no model: it cannot compete.
+    A model that puts every row in one cluster scores -1, the worst silhouette.
+    """
+    scores = {}
+    for sector, rows in candidates.groupby("sector_id", sort=True):
+        sector = int(sector)
+        if sector not in models or sector not in pcas:
+            return None
+        _, tab, text = _sector_inputs(sector, rows)
+        reduced = _project(pcas[sector], text)
+        labels = models[sector].predict(np.hstack([tab, reduced]) if tab is not None else reduced)
+        scores[sector] = (
+            float(silhouette_score(_original_distances(tab, text), labels, metric="precomputed"))
+            if len(set(labels)) > 1 else -1.0
+        )
+    return scores
 
 
 def build_geo_index(candidates: pd.DataFrame) -> GeoIndex:
