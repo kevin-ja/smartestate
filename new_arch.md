@@ -129,7 +129,7 @@ CSV (S3) ──▶ ingesta ──▶ limpieza ──▶ preprocesamiento ──�
 | Subpipeline | Etapas | Sale |
 |---|---|---|
 | **Data pipeline** | Ingesta, limpieza y preprocesamiento (los tres flujos que ya existen) + feature engineering (nuevo, incluye embeddings del texto con **SBERT**, el embedder puede cambiar, y los encodings como `modality_mask`) | Spots FS offline (`spots_fs_offline`), reescrita completa con `cluster_id` nulo, y los artefactos del feature engineering |
-| **Modeling pipeline** | Modelado: lee Spots FS offline, entrena un K-means por sector sobre `tab_vector ‖ nlp_vector` (Land: solo `nlp_vector`), con los candidatos que tienen texto; los que no tienen van al centroide más cercano midiendo solo `tab_vector`. Construye el GeoIndex **solo con candidatos** (`is_candidate = True`). Predice el `cluster_id` de los candidatos en memoria y, al final, si todo salió bien, lo agrega a Spots FS offline (nulo para los no candidatos) | K-means, GeoIndex y `cluster_id` en Spots FS offline |
+| **Modeling pipeline** | Modelado: lee Spots FS offline, entrena un K-means por sector sobre `tab_vector ‖ PCA(nlp_vector)` (Land: solo `PCA(nlp_vector)`), con los candidatos que tienen texto; los que no tienen van al centroide más cercano midiendo solo `tab_vector`. Construye el GeoIndex **solo con candidatos** (`is_candidate = True`). Predice el `cluster_id` de los candidatos en memoria y, al final, si todo salió bien, lo agrega a Spots FS offline (nulo para los no candidatos) | K-means, GeoIndex y `cluster_id` en Spots FS offline |
 
 **Job en Databricks:** un solo job, `smartestate_train`, con tasks en secuencia. Cada una corre
 solo si la anterior terminó bien.
@@ -181,7 +181,7 @@ run de MLflow lo guarda como tag.
 
       | Parte | Feature | Columna guardada | Columnas involucradas |
       |---|---|---|---|
-      | **3A · Tabular** | Vector tabular, uno por sector, escalado y normalizado a largo 1 | `tab_vector` (`ArrayType`; nulo en Land) | **Industrial (8):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `charging_ports`<br>• `building_status` → `status_0`, `status_1`, `status_2`, `status_3` (one-hot, ver abajo)<br>• `natural_light`<br>**Office (7):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `security_type` → `security_0`, `security_1`, `security_2`, `security_3` (multi-hot, ver abajo)<br>• `number_of_elevators`<br>**Retail (7):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `parking_spaces`<br>• `building_status` → `status_0`, `status_1`, `status_2`, `status_3` (one-hot, ver abajo)<br>**Land:** sin vector tabular |
+      | **3A · Tabular** | Vector tabular, uno por sector, escalado y **sin** normalizar a largo 1 (2026-11-11) | `tab_vector` (`ArrayType`; nulo en Land) | **Industrial (8):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `charging_ports`<br>• `building_status` → `status_0`, `status_1`, `status_2`, `status_3` (one-hot, ver abajo)<br>• `natural_light`<br>**Office (7):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `security_type` → `security_0`, `security_1`, `security_2`, `security_3` (multi-hot, ver abajo)<br>• `number_of_elevators`<br>**Retail (7):**<br>• `area_sqm`<br>• `maintenance_cost`<br>• `parking_spaces`<br>• `building_status` → `status_0`, `status_1`, `status_2`, `status_3` (one-hot, ver abajo)<br>**Land:** sin vector tabular |
       | **3A · Texto** | Embedding SBERT (`paraphrase-multilingual-mpnet-base-v2`, 768 dimensiones), L2-normalizado | `nlp_vector` (`ArrayType`; nulo sin descripción, D3) | • `title`<br>• `description`<br>• `floor_material` (solo Industrial, D18) |
       | **3B · Precio** | Precio por m², crudo (`f(r)` es un cociente) | `rent_price_sqm`, `sale_price_sqm` | • `rent_price_sqm`<br>• `sale_price_sqm` |
 
@@ -251,8 +251,12 @@ inferencia leen la columna ya codificada, así que no hay dos codificaciones que
   (media) antes del `StandardScaler`, dentro del `PipelineModel` (2026-10-21, Kevin). Costo: en las
   columnas con muchos nulos la desviación sale algo menor. Sin artefacto extra ni banderas.
   `natural_light` nulo → 0. En `building_status` el nulo ya es categoría (`status_0`).
-* **Orden:** `log1p` → `StandardScaler` → nulo = 0 → + one-hot y `natural_light / 100` →
-  normalización L2.
+* **Orden:** `log1p` → `StandardScaler` → nulo = 0 → + one-hot y `natural_light / 100`.
+* **Sin L2 (2026-11-11, Kevin):** dividir cada fila por su largo borraba el tamaño del spot (una oficina
+  5 veces más grande quedaba igual) y le daba a cada binaria un peso distinto en cada fila. K-means mide
+  distancia euclídea, así que lo perjudicaba. El coseno del re-ranker no depende del largo: no cambia.
+* **Binarias en 0/1, sin escalar (2026-11-11, Kevin):** estandarizarlas solo cambia su peso (un 1 poco
+  frecuente pasaría a valer ~3).
 * **Office sin `building_status` (2026-10-20, Kevin):** casi no informa (84 % nulos; 74 de 75 = 1).
   Su one-hot solo diría si el campo está lleno, y eso inflaría el coseno entre oficinas sin dato.
   Se quita de ese sector: el vector de Office queda en 7.
@@ -578,8 +582,8 @@ sim(A, B) = w_tab · cos(A_tab, B_tab) + w_nlp · cos(A_nlp, B_nlp)
   `sim = Σ(wᵢ · cosᵢ) / Σ(wᵢ)`. Así `sim` sigue en `[0, 1]`.
 * **Cómo se guardan:** el vector tabular y el embedding van cada uno en una columna `ArrayType`
   (`tab_vector`, `nlp_vector`). El largo de `tab_vector` depende del sector.
-* **Cómo se calcula:** el FE deja los vectores normalizados a largo 1, así que el coseno es un producto
-  punto. Con numpy, todos los candidatos a la vez: `matriz_candidatos @ vector_clic`.
+* **Cómo se calcula:** coseno completo, `(M @ a) / (|filas de M| · |a|)`, con numpy y todos los candidatos
+  a la vez. `tab_vector` no tiene largo 1 (2026-11-11); `nlp_vector` sí.
 * `w_tab` y `w_nlp`: parámetro a calibrar (Next steps 1).
 
 #### 3B · Precio `f(r)`
@@ -716,4 +720,10 @@ Esto es lo que define hoy este documento, separado en las dos etapas.
 3. ~~Radio del Filtro 1 (5 → 10 → 15 km) y su tope.~~ → cerrado 2026-11-05, §4.1. Tope de 15 km, mínimo de 50 y máximo de 300 candidatos; valores iniciales.
 4. ~~N por defecto.~~ → cerrado 2026-11-05: 10, con `n` hasta 50.
 5. Esquema del feature store: columnas exactas. ~~Modelo SBERT concreto~~ → cerrado 2026-10-19: `paraphrase-multilingual-mpnet-base-v2` (768 dim).
-6. K-means: `δ` (inicial 0.85) y `k` (5–8, por codo o silhouette), con `random_state` fijo.
+6. K-means: `δ` (inicial 0.85) y `k`, con `random_state` fijo. → `k` cerrado 2026-11-11: **4 a 12**, se
+   elige por silhouette. Antes del K-means, **PCA solo sobre `nlp_vector`**, por sector, y se vuelve a
+   normalizar a largo 1. El PCA se guarda en `runs/<run_id>/pca.joblib`.
+   **Búsqueda (2026-11-11, Kevin):** varianza del PCA en `{0.70, 0.80, 0.90, 0.95}` × `k` de 4 a 12 (36
+   K-means por sector); gana el mejor silhouette. El silhouette se mide **siempre en el espacio original**
+   (`tab_vector ‖ nlp_vector`): medido en cada espacio PCA, ganaría la varianza más baja solo por tener
+   menos dimensiones. Empate → menor varianza y menor `k`.

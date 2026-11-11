@@ -16,7 +16,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # Dependencias primero: esta capa queda en caché y solo se rehace si cambian las versiones.
-# numpy/pandas/pyarrow/scikit-learn/joblib: mismas versiones que requirements.txt.
+# numpy/pandas/pyarrow/scikit-learn/joblib/boto3: mismas versiones que requirements.txt.
+# boto3 trae botocore y urllib3, que importa src/inference/online_store.py.
 RUN pip install --no-cache-dir \
     pyspark==4.1.0 \
     pytest==9.1.1 \
@@ -24,7 +25,8 @@ RUN pip install --no-cache-dir \
     pandas==3.0.5 \
     pyarrow==25.0.1 \
     scikit-learn==1.9.1 \
-    joblib==1.6.0
+    joblib==1.6.0 \
+    boto3==1.43.124
 
 # Solo el código que se evalúa.
 WORKDIR /app

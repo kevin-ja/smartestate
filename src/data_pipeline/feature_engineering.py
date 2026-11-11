@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from pyspark.ml import Pipeline, PipelineModel
-from pyspark.ml.feature import Imputer, Normalizer, SQLTransformer, StandardScaler, VectorAssembler
+from pyspark.ml.feature import Imputer, SQLTransformer, StandardScaler, VectorAssembler
 from pyspark.ml.functions import vector_to_array
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
@@ -101,8 +101,9 @@ def _binary_sql() -> list[str]:
 
 def build_pipeline(spec: SectorSpec) -> Pipeline:
     """
-    log1p -> mean imputation -> StandardScaler -> + binaries -> L2. Imputing the mean before scaling
-    leaves a null at exactly 0 after scaling (the sector mean), inside the fitted model.
+    log1p -> mean imputation -> StandardScaler -> + binaries. Imputing the mean before scaling leaves a
+    null at exactly 0 after scaling (the sector mean), inside the fitted model. No L2: it would erase the
+    size of a spot and give the binaries a different weight in each row (new_arch.md §3.2.1).
     """
     raw = [f"_{c}_raw" for c in spec.log_columns + spec.plain_columns]
     imputed = [f"_{c}_imputed" for c in spec.log_columns + spec.plain_columns]
@@ -117,8 +118,7 @@ def build_pipeline(spec: SectorSpec) -> Pipeline:
             Imputer(strategy="mean", inputCols=raw, outputCols=imputed),
             VectorAssembler(inputCols=imputed, outputCol="_numeric"),
             StandardScaler(withMean=True, withStd=True, inputCol="_numeric", outputCol="_scaled"),
-            VectorAssembler(inputCols=["_scaled", *spec.binary_columns], outputCol="_raw_vector"),
-            Normalizer(p=2.0, inputCol="_raw_vector", outputCol="_tab_vector"),
+            VectorAssembler(inputCols=["_scaled", *spec.binary_columns], outputCol="_tab_vector"),
         ]
     )
 
@@ -256,7 +256,6 @@ def validate(features: DataFrame, gold_rows: int, with_description: int) -> list
         F.sum(F.col(FS_OFFLINE_KEY).isNull().cast("int")).alias("null_ids"),
         F.sum((tab_sector & ~F.coalesce(F.size("tab_vector") == tab_dim, F.lit(False))).cast("int")).alias("bad_tab_dim"),
         F.sum((~tab_sector & F.col("tab_vector").isNotNull()).cast("int")).alias("unexpected_tab"),
-        F.sum((F.col("tab_vector").isNotNull() & _norm_off("tab_vector")).cast("int")).alias("bad_tab_norm"),
         F.sum(F.col("nlp_vector").isNotNull().cast("int")).alias("with_nlp"),
         F.sum((F.col("nlp_vector").isNotNull() & (F.size("nlp_vector") != NLP_DIM)).cast("int")).alias("bad_nlp_dim"),
         F.sum((F.col("nlp_vector").isNotNull() & _norm_off("nlp_vector")).cast("int")).alias("bad_nlp_norm"),
@@ -270,8 +269,6 @@ def validate(features: DataFrame, gold_rows: int, with_description: int) -> list
         errors.append(f"tab_vector: {stats['bad_tab_dim']} rows with a length other than {TAB_DIMS}")
     if stats["unexpected_tab"]:
         errors.append(f"tab_vector: {stats['unexpected_tab']} rows outside {sorted(TAB_DIMS)} with a vector")
-    if stats["bad_tab_norm"]:
-        errors.append(f"tab_vector: {stats['bad_tab_norm']} rows with norm off 1 ± {NORM_TOLERANCE}")
     if stats["with_nlp"] != with_description:
         errors.append(f"nlp_vector: {stats['with_nlp']} rows, expected {with_description} (has_description)")
     if stats["bad_nlp_dim"]:

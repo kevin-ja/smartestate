@@ -14,7 +14,6 @@ Databricks, in the job's unit_tests task, until CI exists (plan, Phase 2). See t
 from __future__ import annotations
 
 import logging
-import math
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -94,11 +93,10 @@ def test_schema_and_validation(result, gold):
     assert fe.validate(result.features, gold.count(), with_description) == []
 
 
-def test_tab_vector_dims_and_norm(result):
+def test_tab_vector_dims(result):
     for spot_id, row in _by_id(result.features).items():
         if row["sector_id"] in TAB_DIMS:
             assert len(row["tab_vector"]) == TAB_DIMS[row["sector_id"]]
-            assert math.isclose(math.sqrt(sum(x * x for x in row["tab_vector"])), 1.0, abs_tol=1e-6)
         else:
             assert row["tab_vector"] is None, spot_id
 
@@ -300,7 +298,8 @@ def test_land_clusters_on_text_alone():
     modeling = pytest.importorskip("src.ml_pipeline.modeling")
     _, texts, _, _ = _two_groups()
     result = modeling.cluster_candidates(_candidates(None, texts, sector_id=15))
-    assert result.models[15].cluster_centers_.shape[1] == 4 and len(result.clusters) == 16
+    assert result.models[15].cluster_centers_.shape[1] == result.pcas[15].n_components_
+    assert len(result.clusters) == 16
 
 
 def test_candidate_without_any_vector_aborts():
@@ -328,7 +327,28 @@ def test_cluster_id_only_for_candidates(result, gold):
 
 def test_hyperparameters_match_what_the_kmeans_uses():
     modeling = pytest.importorskip("src.ml_pipeline.modeling")
-    assert modeling.hyperparameters() == {"kmeans_k_min": 5, "kmeans_k_max": 8, "kmeans_seed": 0, "kmeans_n_init": 10}
+    assert modeling.hyperparameters() == {
+        "kmeans_k_min": 4, "kmeans_k_max": 12, "kmeans_seed": 0, "kmeans_n_init": 10,
+        "pca_variances": "0.7,0.8,0.9,0.95",
+    }
+
+
+def test_text_pca_rows_have_length_one():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    text = np.random.default_rng(0).normal(size=(40, 16))
+    reduced, pca = modeling.reduce_text(text, 0.9)
+    assert reduced.shape == (40, pca.n_components_) and pca.n_components_ < 16
+    np.testing.assert_allclose(np.linalg.norm(reduced, axis=1), 1.0)
+
+
+def test_search_picks_a_variance_from_the_grid_and_is_deterministic():
+    modeling = pytest.importorskip("src.ml_pipeline.modeling")
+    tabs, texts, _, _ = _two_groups()
+    first = modeling.cluster_candidates(_candidates(tabs, texts))
+    assert first.metrics["pca_variance_sector_9"] in modeling.PCA_VARIANCES
+    assert first.metrics["kmeans_k_sector_9"] in modeling.K_VALUES
+    again = modeling.cluster_candidates(_candidates(tabs, texts))
+    assert first.metrics == again.metrics
 
 
 # ── T3 · materialization (plan, Phase 4) ──────────────────────────────────────

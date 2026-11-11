@@ -22,7 +22,7 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 | Test | Pregunta que responde |
 |---|---|
 | `schema_and_validation` | ¿Las columnas y sus tipos son los del contrato? |
-| `tab_vector_dims_and_norm` | ¿Cada sector tiene un vector del largo correcto? |
+| `tab_vector_dims` | ¿Cada sector tiene un vector del largo correcto? |
 | `scaler_fits_on_candidates_only` | ¿La escala se calcula sin los outliers? |
 | `null_is_zero_after_scaling` | ¿Un dato vacío queda en 0? |
 | `binaries` | ¿La seguridad de una oficina pasa a sí/no? |
@@ -56,6 +56,8 @@ Para encontrar errores del código en segundos y gratis, antes de pagar un clust
 | `spot_without_text_does_not_train_the_model` | ¿Los spots sin texto quedan fuera del entrenamiento? |
 | `spread_counts_rows_with_and_without_text` | ¿Se cuenta bien cuántos con y sin texto hay por grupo? |
 | `land_clusters_on_text_alone` | ¿Land se agrupa solo con texto? |
+| `text_pca_rows_have_length_one` | ¿El PCA reduce el texto y deja cada fila de largo 1? |
+| `search_picks_a_variance_from_the_grid_and_is_deterministic` | ¿La búsqueda varianza × k elige dentro de la grilla y siempre da lo mismo? |
 | `candidate_without_any_vector_aborts` | ¿Se detiene si un candidato no tiene ningún vector? |
 | `sector_with_too_few_rows_aborts` | ¿Se detiene si un sector tiene muy pocas filas? |
 | `cluster_id_only_for_candidates` | ¿Solo los candidatos reciben grupo? |
