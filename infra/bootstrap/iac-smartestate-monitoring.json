@@ -1,0 +1,96 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AvisosSns",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic", "sns:DeleteTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes",
+        "sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes", "sns:SetSubscriptionAttributes",
+        "sns:TagResource", "sns:UntagResource", "sns:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:sns:us-east-1:ACCOUNT_ID:smartestate-*"
+    },
+    {
+      "Sid": "Alarmas",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
+        "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:smartestate-*"
+    },
+    {
+      "Sid": "Dashboard",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:PutDashboard", "cloudwatch:GetDashboard", "cloudwatch:DeleteDashboards"],
+      "Resource": "arn:aws:cloudwatch::ACCOUNT_ID:dashboard/smartestate-*"
+    },
+    {
+      "Sid": "LecturasSinRecurso",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms", "logs:DescribeLogGroups", "logs:DescribeMetricFilters",
+        "logs:GetQueryResults", "route53:CreateHealthCheck"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "FiltrosYConsultasDelLogDeLaApi",
+      "Effect": "Allow",
+      "Action": ["logs:PutMetricFilter", "logs:DeleteMetricFilter", "logs:StartQuery"],
+      "Resource": [
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/smartestate/*",
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/smartestate/*:*"
+      ]
+    },
+    {
+      "Sid": "LogDeLaLambda",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy",
+        "logs:TagResource", "logs:UntagResource", "logs:ListTagsForResource", "logs:TagLogGroup", "logs:ListTagsLogGroup"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/aws/lambda/smartestate-*",
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/aws/lambda/smartestate-*:*"
+      ]
+    },
+    {
+      "Sid": "LatidoRoute53",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHealthCheck", "route53:UpdateHealthCheck", "route53:DeleteHealthCheck",
+        "route53:ChangeTagsForResource", "route53:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:route53:::healthcheck/*"
+    },
+    {
+      "Sid": "LambdaSemanal",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction", "lambda:DeleteFunction", "lambda:GetFunction", "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:GetFunctionCodeSigningConfig",
+        "lambda:ListVersionsByFunction", "lambda:AddPermission", "lambda:RemovePermission", "lambda:GetPolicy",
+        "lambda:TagResource", "lambda:UntagResource", "lambda:ListTags", "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:ACCOUNT_ID:function:smartestate-*"
+    },
+    {
+      "Sid": "PasarRolALaLambda",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/smartestate-*",
+      "Condition": {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}}
+    },
+    {
+      "Sid": "CronEventBridge",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule", "events:DeleteRule", "events:DescribeRule", "events:PutTargets", "events:RemoveTargets",
+        "events:ListTargetsByRule", "events:TagResource", "events:UntagResource", "events:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:events:us-east-1:ACCOUNT_ID:rule/smartestate-*"
+    }
+  ]
+}

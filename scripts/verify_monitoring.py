@@ -57,11 +57,12 @@ def check_lines(lines: list[dict[str, str]]) -> list[str]:
     if not ok:
         problems.append("no hay clics con status 200 en la ventana")
     for line in ok:
-        missing = [field for field in ("run_id", "spot_id", "n", "spot_ids") if field not in line]
+        # spot_ids may be missing: an empty answer logs "", and Logs Insights drops empty fields.
+        missing = [field for field in ("run_id", "spot_id", "n") if field not in line]
         if missing:
             problems.append(f"línea sin {missing}: {line}")
             continue
-        ranked = [value for value in line["spot_ids"].split(",") if value]
+        ranked = [value for value in line.get("spot_ids", "").split(",") if value]
         if not all(value.isdigit() for value in ranked) or len(ranked) > int(line["n"]) or str(line["spot_id"]) in ranked:
             problems.append(f"spot_ids mal formado: {line}")
     return problems
@@ -105,7 +106,8 @@ def main() -> int:
     statuses = {}
     for line in lines:
         statuses[line.get("status")] = statuses.get(line.get("status"), 0) + 1
-    print(f"  líneas de clic: {len(lines)} · por status: {statuses}")
+    empty = sum(1 for line in lines if line.get("status") == "200" and not line.get("spot_ids"))
+    print(f"  líneas de clic: {len(lines)} · por status: {statuses} · respuestas vacías: {empty}")
     report("1. Log por request con run_id, spot_id, n y spot_ids", check_lines(lines))
 
     # 2. Lambda vs local, on the same window and the same benchmark
@@ -146,7 +148,7 @@ def main() -> int:
             spot_id = int(line["spot_id"])
             if spot_id not in trained:
                 continue
-            ranked = [int(value) for value in line["spot_ids"].split(",") if value]
+            ranked = [int(value) for value in line.get("spot_ids", "").split(",") if value]
             scores = ranking_metrics.score(ranked, benchmark[spot_id])
             compared += 1
             row = trained[spot_id]

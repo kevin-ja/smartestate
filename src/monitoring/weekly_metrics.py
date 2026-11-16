@@ -77,7 +77,8 @@ def weekly_scores(rows: Iterable[Mapping[str, str]], benchmark: Mapping[int, Map
         spot_id = int(row["spot_id"])
         if spot_id not in benchmark:
             continue
-        ranked = [int(value) for value in row["spot_ids"].split(",") if value]
+        # An empty answer logs spot_ids as "", and Logs Insights drops empty fields: missing means no spots.
+        ranked = [int(value) for value in row.get("spot_ids", "").split(",") if value]
         scores = ranking_metrics.score(ranked, benchmark[spot_id])
         if scores is None:
             continue

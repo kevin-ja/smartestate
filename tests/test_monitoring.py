@@ -107,6 +107,13 @@ def test_an_empty_answer_scores_zero_not_an_error():
     assert run["recall_at_10"] == 0.0 and run["ndcg_at_10"] == 0.0
 
 
+def test_a_row_without_spot_ids_is_an_empty_answer():
+    row = log_row(spot_id=1)
+    del row["spot_ids"]  # Logs Insights drops the empty string the API logs for an empty answer
+    (run,) = wm.weekly_scores([row], {1: {2: 1}})
+    assert run["clicks_in_benchmark"] == 1 and run["recall_at_10"] == 0.0
+
+
 def test_runs_are_reported_separately():
     rows = [log_row(run_id="a", spot_id=1, spot_ids="2"), log_row(run_id="b", spot_id=1, spot_ids="9")]
     result = {run["run_id"]: run for run in wm.weekly_scores(rows, {1: {2: 1}})}
