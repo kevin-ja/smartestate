@@ -194,8 +194,9 @@ locals {
   health_check_regions = ["us-east-1", "us-west-1", "eu-west-1"]
 }
 
+# "global": los checkers también llaman desde 15.177.0.0/18, que AWS publica sin región. Sin él, el latido no llega.
 data "aws_ip_ranges" "health_checks" {
-  regions  = local.health_check_regions
+  regions  = concat(local.health_check_regions, ["global"])
   services = ["route53_healthchecks"]
 }
 
