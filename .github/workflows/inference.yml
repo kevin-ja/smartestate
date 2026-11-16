@@ -14,7 +14,10 @@ on:
       - src/inference/**
       - src/common/geo_index.py
       - src/ml_pipeline/materialization.py
+      - src/common/ranking_metrics.py
+      - src/monitoring/**
       - tests/test_inference*.py
+      - tests/test_monitoring.py
       - deploy/ansible/**
       - .github/workflows/inference.yml
   push:
@@ -23,7 +26,10 @@ on:
       - src/inference/**
       - src/common/geo_index.py
       - src/ml_pipeline/materialization.py
+      - src/common/ranking_metrics.py
+      - src/monitoring/**
       - tests/test_inference*.py
+      - tests/test_monitoring.py
       - deploy/ansible/**
       - .github/workflows/inference.yml
   workflow_dispatch:
@@ -58,7 +64,7 @@ jobs:
         run: pip install -r src/inference/requirements-test.txt
 
       - name: Correr los tests unitarios
-        run: python -m pytest tests/test_inference.py -v -p no:cacheprovider
+        run: python -m pytest tests/test_inference.py tests/test_monitoring.py -v -p no:cacheprovider
 
   deliver:
     needs: unit-tests

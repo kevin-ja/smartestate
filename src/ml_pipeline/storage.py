@@ -18,6 +18,11 @@ def read_candidates(spark: SparkSession, table: str) -> pd.DataFrame:
     return spark.table(table).filter("is_candidate").select(*CANDIDATE_COLUMNS).orderBy("spot_id").toPandas()
 
 
+def read_spots(spark: SparkSession, table: str, columns: tuple[str, ...]) -> pd.DataFrame:
+    """Every spot, candidate or not, with the columns the cascade reads: the click can be a non-candidate."""
+    return spark.table(table).select(*columns).orderBy("spot_id").toPandas()
+
+
 def read_smoke_row(spark: SparkSession, table: str) -> dict[str, Any]:
     """First candidate with text, by spot_id: spot_id, cluster_id and nlp_vector for the T3 smoke test."""
     row = (
@@ -66,6 +71,21 @@ def read_runs_file(spark: SparkSession, runs_root: str, name: str) -> str | None
     return None
 
 
+def read_ref_file(spark: SparkSession, ref_root: str, relative: str) -> str | None:
+    """Text of a file under ref/ (benchmark/benchmark.csv). None only if it does not exist; any other failure raises."""
+    dbutils = _dbutils(spark)
+    folder, _, name = f"{ref_root.rstrip('/')}/{relative}".rpartition("/")
+    try:
+        entries = dbutils.fs.ls(folder)
+    except Exception as error:  # the folder itself is missing: dbutils raises a Java FileNotFoundException
+        if "FileNotFound" in str(error) or "does not exist" in str(error):
+            return None
+        raise
+    if not any(entry.name == name for entry in entries):
+        return None
+    return dbutils.fs.head(f"{folder}/{name}", 64 * 1024 * 1024)
+
+
 def read_text(spark: SparkSession, path: str) -> str:
     """A small text file in S3 (metrics.json, a pointer). Raises if it does not exist."""
     return _dbutils(spark).fs.head(path, 1024 * 1024)
@@ -101,6 +121,13 @@ def write_joblib(spark: SparkSession, value: Any, local: Path, destination: str)
 def write_json(spark: SparkSession, value: Any, local: Path, destination: str) -> None:
     local.parent.mkdir(parents=True, exist_ok=True)
     local.write_text(json.dumps(value, indent=2))
+    _copy_to_runs(spark, local, destination)
+
+
+def write_csv(spark: SparkSession, frame: pd.DataFrame, local: Path, destination: str) -> None:
+    """A small CSV (benchmark_scores.csv) written on the driver, then copied to runs/<run_id>/."""
+    local.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(local, index=False)
     _copy_to_runs(spark, local, destination)
 
 

@@ -80,3 +80,12 @@ output "inference_instance_id" {
 output "inference_ecr_repository_url" {
   value = module.inference_service.ecr_repository_url
 }
+
+output "monitoring_weekly_metrics_function" {
+  description = "Lambda semanal del modelo. Se corre a mano con aws lambda invoke."
+  value       = module.monitoring.weekly_metrics_function
+}
+
+output "monitoring_dashboard" {
+  value = module.monitoring.dashboard_name
+}

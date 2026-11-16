@@ -32,6 +32,45 @@
         state: started
         enabled: true
 
+    # Memoria y disco para el monitoreo (monitor.md): la EC2 no los publica sola. aggregation_dimensions deja una
+    # serie con solo InstanceId, que es la que miran las alarmas.
+    - name: Instalar el CloudWatch Agent
+      ansible.builtin.dnf:
+        name: amazon-cloudwatch-agent
+        state: present
+
+    - name: Configurar el CloudWatch Agent
+      ansible.builtin.copy:
+        dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+        mode: "0644"
+        content: |
+          {
+            "agent": {"metrics_collection_interval": 60},
+            "metrics": {
+              "append_dimensions": {"InstanceId": "${aws:InstanceId}"},
+              "aggregation_dimensions": [["InstanceId"]],
+              "metrics_collected": {
+                "mem": {"measurement": ["mem_used_percent"]},
+                "disk": {"measurement": ["used_percent"], "resources": ["/"]}
+              }
+            }
+          }
+      register: agent_config
+
+    - name: Encender el CloudWatch Agent
+      ansible.builtin.command:
+        argv:
+          - /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+          - -a
+          - fetch-config
+          - -m
+          - ec2
+          - -s
+          - -c
+          - file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+      when: agent_config.changed
+      changed_when: true
+
     - name: Entrar a ECR
       ansible.builtin.shell:
         cmd: >-

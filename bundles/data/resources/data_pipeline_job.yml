@@ -107,6 +107,8 @@ resources:
               - ${var.runs_root}
               - --fs-table
               - ${var.catalog}.feature_store_offline.spots_fs_offline
+              - --ref-root
+              - ${var.ref_root}
               - --experiment
               - ${resources.experiments.train.name}
               - --git-commit

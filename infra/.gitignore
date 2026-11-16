@@ -6,3 +6,6 @@
 # .terraform.lock.hcl SÍ se versiona: fija la versión del provider.
 crash.log
 *.tfvars.local
+
+# Zip de la Lambda del monitoreo: se genera en cada plan
+modules/monitoring/.build/

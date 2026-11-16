@@ -401,6 +401,38 @@ def test_every_response_reports_the_time_spent_in_the_service(client):
     assert float(header.removeprefix("app;dur=")) >= 0
 
 
+@pytest.fixture
+def request_lines():
+    """JSON lines the API logs, captured straight from its logger (its handler writes to the real stdout)."""
+    import logging
+
+    from src.inference import api
+
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    api.request_log.addHandler(handler)
+    yield lambda: [json.loads(record.getMessage()) for record in records]
+    api.request_log.removeHandler(handler)
+
+
+def test_every_request_leaves_one_json_line(client, request_lines):
+    client.get("/recommendations/0?n=2")
+    client.get("/health")
+    click, health = request_lines()
+    assert click == {
+        "event": "request", "method": "GET", "path": "/recommendations/0", "status": 200, "latency_ms": click["latency_ms"],
+        "run_id": "abc", "spot_id": 0, "n": 2, "spot_ids": "2,3",
+    }
+    assert health["path"] == "/health" and health["status"] == 200 and "spot_ids" not in health
+
+
+def test_an_unknown_click_logs_its_404_without_recommendation(client, request_lines):
+    client.get("/recommendations/404")
+    (line,) = request_lines()
+    assert line["status"] == 404 and "spot_id" not in line
+
+
 def test_health_and_version_when_loaded(client):
     assert client.get("/health").json() == {"status": "ok"}
     assert client.get("/version").json() == {"run_id": "abc", "params": PARAMS}

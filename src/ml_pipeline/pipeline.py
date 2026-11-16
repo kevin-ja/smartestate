@@ -1,10 +1,14 @@
 """
 T2 · Modeling pipeline: Spots FS offline -> K-means, GeoIndex, re-ranker params and cluster_id.
 
-    Read candidates -> K-means per sector -> GeoIndex -> Evaluate vs champion -> Artifacts -> MLflow -> cluster_id
+    Read candidates -> K-means per sector -> GeoIndex -> Evaluate vs champion -> Benchmark scores -> Artifacts
+    -> MLflow -> cluster_id
 
 Evaluation (criterion 6): the champion's models (runs/champion.json) are scored on these same candidates and
 metrics.json records whether this run wins. T3 promotes it only after its table passes the smoke test.
+
+Benchmark scores (monitor.md): the cascade runs offline on every spot of ref/benchmark/benchmark.csv and
+benchmark_scores.csv keeps Recall@10 and NDCG@10 per spot. Only a record: without the file, the stage is skipped.
 
 cluster_id is written last: if anything fails before, the table keeps T1's output and a repair run
 repeats this task alone (new_arch.md §3.1).
@@ -12,7 +16,7 @@ repeats this task alone (new_arch.md §3.1).
 Run (Databricks, bundles/data/resources/data_pipeline_job.yml):
     run_modeling.py --run-id {{job.run_id}} --runs-root s3://<lake>/runs \
         --fs-table smartestate.feature_store_offline.spots_fs_offline \
-        --experiment /Shared/smartestate-train
+        --ref-root s3://<lake>/ref --experiment /Shared/smartestate-train
 """
 
 from __future__ import annotations
@@ -22,18 +26,21 @@ import logging
 from pathlib import Path
 
 import mlflow
+import pandas as pd
 import yaml
 from pyspark.sql import SparkSession
 
 from src.common import logs, run_monitor
 from src.common.run_monitor import stage
 from src.common.tracking import log_environment, start_run
-from src.ml_pipeline import evaluation, materialization, modeling, storage
+from src.common import ranking_metrics
+from src.ml_pipeline import benchmark, evaluation, materialization, modeling, storage
 
 logger = logging.getLogger(__name__)
 
 RERANKER_PARAMS = Path(__file__).resolve().parents[2] / "config" / "reranker_params.yml"
 LOCAL_DIR = Path("/local_disk0/smartestate/modeling")
+BENCHMARK_PATH = "benchmark/benchmark.csv"  # under ref/, uploaded by hand (monitor.md)
 
 # Spark's default is 200, for a table of ~2,500 rows (data_pipeline.md). Set per task, as T1 does.
 SHUFFLE_PARTITIONS = 8
@@ -54,6 +61,20 @@ def evaluate(spark: SparkSession, args: argparse.Namespace, candidates, result: 
     return report
 
 
+def score_benchmark(spark: SparkSession, args: argparse.Namespace, geo_index, clusters, params) -> tuple[pd.DataFrame, dict[str, float]]:
+    """benchmark_scores.csv rows and their summary. Empty when ref/ has no benchmark: the metric is a record, not a gate."""
+    text = storage.read_ref_file(spark, args.ref_root, BENCHMARK_PATH)
+    if text is None:
+        logger.warning("benchmark: %s/%s does not exist, no scores for this run", args.ref_root, BENCHMARK_PATH)
+        return pd.DataFrame(columns=benchmark.SCORES_COLUMNS), {}
+    ground_truth = ranking_metrics.read_benchmark_csv(text)
+    store = benchmark.OfflineStore(storage.read_spots(spark, args.fs_table, benchmark.STORE_COLUMNS), clusters)
+    scores = benchmark.score_run(args.run_id, ground_truth, geo_index, store, params)
+    summary = benchmark.summary(scores, len(ground_truth))
+    logger.info("benchmark: %s", summary)
+    return scores, summary
+
+
 def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, float]:
     """Returns the run's metrics."""
     run_dir = f"{args.runs_root.rstrip('/')}/{args.run_id}"
@@ -68,15 +89,20 @@ def run(spark: SparkSession, args: argparse.Namespace) -> dict[str, float]:
         geo_index = modeling.build_geo_index(candidates)
     with stage("evaluate"):
         report = evaluate(spark, args, candidates, result)
+    with stage("benchmark_scores"):
+        scores, benchmark_summary = score_benchmark(spark, args, geo_index, result.clusters, reranker_params)
 
     with stage("write_artifacts"):
+        if benchmark_summary:
+            storage.write_csv(spark, scores, LOCAL_DIR / benchmark.SCORES_FILE, f"{run_dir}/{benchmark.SCORES_FILE}")
         storage.write_joblib(spark, geo_index, LOCAL_DIR / "geo_index.joblib", f"{run_dir}/geo_index.joblib")
         storage.write_joblib(spark, result.models, LOCAL_DIR / "kmeans.joblib", f"{run_dir}/kmeans.joblib")
         storage.write_joblib(spark, result.pcas, LOCAL_DIR / "pca.joblib", f"{run_dir}/pca.joblib")
         storage.write_json(spark, reranker_params, LOCAL_DIR / "reranker_params.json", f"{run_dir}/reranker_params.json")
         storage.write_json(spark, report, LOCAL_DIR / evaluation.METRICS_FILE, f"{run_dir}/{evaluation.METRICS_FILE}")
 
-    metrics = {"modeling_candidates": len(candidates), "silhouette_weighted": report["silhouette_weighted"], **result.metrics}
+    metrics = {"modeling_candidates": len(candidates), "silhouette_weighted": report["silhouette_weighted"],
+               **result.metrics, **benchmark_summary}
     if report["champion"] and report["champion"]["silhouette_weighted"] is not None:
         metrics["champion_silhouette_weighted"] = report["champion"]["silhouette_weighted"]
     with start_run(args.experiment, args.run_id, args.git_commit):
@@ -106,6 +132,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--run-id", required=True, help="Databricks {{job.run_id}}")
     parser.add_argument("--runs-root", required=True, help="e.g. s3://<bucket>/runs")
     parser.add_argument("--fs-table", required=True)
+    parser.add_argument("--ref-root", required=True, help="e.g. s3://<bucket>/ref: holds benchmark/benchmark.csv")
     parser.add_argument("--experiment", required=True, help="MLflow experiment path")
     parser.add_argument("--git-commit", required=True, help="${bundle.git.commit}: code the bundle was deployed from")
     args = parser.parse_args(argv)

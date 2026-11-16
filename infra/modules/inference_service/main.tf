@@ -71,6 +71,18 @@ resource "aws_security_group" "this" {
     }
   }
 
+  # Solo /health importa, pero el security group no filtra por ruta: el puerto de la API.
+  dynamic "ingress" {
+    for_each = length(var.health_check_cidrs) > 0 ? [1] : []
+    content {
+      description = "Latido de Route 53 (monitoreo)"
+      protocol    = "tcp"
+      from_port   = var.api_port
+      to_port     = var.api_port
+      cidr_blocks = var.health_check_cidrs
+    }
+  }
+
   egress {
     description = "HTTPS hacia AWS: ECR, S3, DynamoDB, Logs y SSM"
     protocol    = "tcp"
@@ -205,6 +217,12 @@ resource "aws_iam_role_policy" "service" {
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.this.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# CloudWatch Agent: memoria y disco, que la EC2 no publica sola (monitor.md). Lo instala Ansible.
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
+  role       = aws_iam_role.this.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
 resource "aws_iam_instance_profile" "this" {

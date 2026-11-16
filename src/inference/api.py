@@ -6,6 +6,8 @@ FastAPI service (new_arch.md §4). Loads one run at startup and answers each cli
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import time
 from collections.abc import AsyncIterator, Callable
@@ -20,6 +22,33 @@ from pydantic import BaseModel
 from src.inference import artifacts, recommender
 from src.inference.online_store import JsonDynamoClient, OnlineStore
 from src.ml_pipeline.materialization import online_table_name
+
+
+# One JSON line per request on stdout, which Docker ships to CloudWatch Logs. The monitoring reads it (monitor.md):
+# the metric filters take `status` and `latency_ms`; the weekly Lambda takes `run_id`, `spot_id`, `n` and `spot_ids`.
+# `spot_ids` goes as a comma-separated string, not an array, so Logs Insights can group by it.
+REQUEST_LOGGER = "smartestate.requests"
+request_log = logging.getLogger(REQUEST_LOGGER)
+
+
+def configure_request_log() -> None:
+    """Plain JSON on stdout, once per process, never through the root logger's format."""
+    if not request_log.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        request_log.addHandler(handler)
+    request_log.setLevel(logging.INFO)
+    request_log.propagate = False
+
+
+def request_record(method: str, path: str, status: int, latency_ms: float, recommendation: dict[str, Any] | None) -> dict:
+    record: dict[str, Any] = {
+        "event": "request", "method": method, "path": path, "status": status, "latency_ms": round(latency_ms, 1),
+    }
+    if recommendation is not None:
+        record.update(recommendation)
+        record["spot_ids"] = ",".join(str(spot_id) for spot_id in recommendation["spot_ids"])
+    return record
 
 
 @dataclass(frozen=True)
@@ -74,18 +103,24 @@ def create_app(load: Callable[[], Service] = load_service) -> FastAPI:
         yield
 
     app = FastAPI(title="SmartEstate", lifespan=lifespan)
+    configure_request_log()
 
-    # Time spent inside the service, without the network. The load test (tests/performance/) reads it.
+    # Time spent inside the service, without the network: the Server-Timing header for the load test
+    # (tests/performance/) and the request line for the monitoring.
     @app.middleware("http")
     async def server_timing(request: Request, call_next: Callable) -> Any:
         start = time.perf_counter()
         response = await call_next(request)
-        response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - start) * 1000:.1f}"
+        latency_ms = (time.perf_counter() - start) * 1000
+        response.headers["Server-Timing"] = f"app;dur={latency_ms:.1f}"
+        recommendation = getattr(request.state, "recommendation", None)
+        request_log.info(json.dumps(request_record(request.method, request.url.path, response.status_code, latency_ms, recommendation)))
         return response
 
     # Plain `def`: FastAPI runs them in a thread pool, so the blocking DynamoDB reads do not stop other requests.
     @app.get("/recommendations/{spot_id}")
     def get_recommendations(
+        request: Request,
         service: ReadyService,
         spot_id: Annotated[int, Path()],
         n: Annotated[int, Query(ge=1, le=recommender.MAX_N)] = recommender.DEFAULT_N,
@@ -93,6 +128,7 @@ def create_app(load: Callable[[], Service] = load_service) -> FastAPI:
         spot_ids = recommender.recommend(spot_id, n, service.geo_index, service.store, service.params)
         if spot_ids is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"spot_id {spot_id} not found")
+        request.state.recommendation = {"run_id": service.run_id, "spot_id": spot_id, "n": n, "spot_ids": spot_ids}
         return Recommendations(run_id=service.run_id, spot_ids=spot_ids)
 
     @app.get("/health")

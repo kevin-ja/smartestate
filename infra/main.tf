@@ -189,17 +189,50 @@ module "dbx_compute_policies" {
 # Se levanta y se apaga con -target=module.inference_service.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Regiones desde las que Route 53 llama a /health (latido del monitoreo). Sus IP entran al security group.
+locals {
+  health_check_regions = ["us-east-1", "us-west-1", "eu-west-1"]
+}
+
+data "aws_ip_ranges" "health_checks" {
+  regions  = local.health_check_regions
+  services = ["route53_healthchecks"]
+}
+
 module "inference_service" {
   source = "./modules/inference_service"
 
-  name            = "${var.project}-inference"
-  account_id      = var.account_id
-  region          = var.region
-  lake_bucket_arn = module.lake.bucket_arn
-  allowed_cidrs   = var.inference_allowed_cidrs
-  tags            = merge(var.tags, { Stage = "inference" })
+  name               = "${var.project}-inference"
+  account_id         = var.account_id
+  region             = var.region
+  lake_bucket_arn    = module.lake.bucket_arn
+  allowed_cidrs      = var.inference_allowed_cidrs
+  health_check_cidrs = data.aws_ip_ranges.health_checks.cidr_blocks
+  tags               = merge(var.tags, { Stage = "inference" })
 
   ansible_bucket_arn = "arn:aws:s3:::${var.project}-ansible-${var.account_id}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Monitoreo de la inferencia (monitor.md). Depende de la EC2: se levanta después y se apaga antes que ella.
+#   make apply-monitoring · make destroy-monitoring
+# ─────────────────────────────────────────────────────────────────────────────
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  name                 = "${var.project}-monitoring"
+  region               = var.region
+  alert_email          = var.alert_email
+  instance_id          = module.inference_service.instance_id
+  public_ip            = module.inference_service.public_ip
+  health_check_regions = local.health_check_regions
+  log_group_name       = module.inference_service.log_group_name
+  log_group_arn        = module.inference_service.log_group_arn
+  lake_bucket_name     = module.lake.bucket_name
+  lake_bucket_arn      = module.lake.bucket_arn
+  repo_root            = abspath("${path.root}/..")
+  tags                 = merge(var.tags, { Stage = "monitoring" })
 }
 
 # CI/CD de la inferencia. Lo aplica Kevin a mano con -target=module.cicd, nunca el workflow.

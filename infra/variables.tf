@@ -74,6 +74,12 @@ variable "inference_allowed_cidrs" {
   default     = []
 }
 
+variable "alert_email" {
+  description = "Correo que recibe las alarmas del monitoreo (TF_VAR_alert_email en .env). Vacío: sin suscripción."
+  type        = string
+  default     = ""
+}
+
 variable "github_subject_prefix" {
   description = "Identidad OIDC del repo cuyo CI/CD puede entrar a AWS. Lleva los ID porque el repo usa use_immutable_subject; se consulta con: gh api repos/<dueño>/<repo>/actions/oidc/customization/sub"
   type        = string

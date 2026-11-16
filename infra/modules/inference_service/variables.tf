@@ -27,6 +27,12 @@ variable "allowed_cidrs" {
   default     = []
 }
 
+variable "health_check_cidrs" {
+  description = "IP de los health checks de Route 53 que llaman a /health. Vacío: sin latido."
+  type        = list(string)
+  default     = []
+}
+
 variable "instance_type" {
   description = "Debe ser x86: la imagen se construye para linux/amd64."
   type        = string

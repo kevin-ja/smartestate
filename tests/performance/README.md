@@ -58,6 +58,21 @@ aws ssm start-session --profile smartestate --target <instance_id>
 docker stats
 ```
 
+## Tráfico sintético para el monitoreo
+
+Prueba que el log y la Lambda semanal producen lo que pide `monitor.md`. Poca carga: 2 usuarios, 5 minutos, 90 % de
+los clics a inmuebles de `ref/benchmark/benchmark.csv`.
+
+```bash
+start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+./ss/bin/locust -f tests/performance/smoke.py --host "$HOST" --headless -u 2 -r 1 --run-time 5m
+end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+./ss/bin/python scripts/verify_monitoring.py --start "$start" --end "$end"
+```
+
+El script comprueba el log, que la Lambda dé lo mismo que el cálculo local y que producción coincida con
+`benchmark_scores.csv` del entrenamiento. Termina con error si algo falla.
+
 ## Leer el resultado
 
 El estrés imprime una fila por escalón y la **capacidad**: el último escalón que cumple el SLO antes del

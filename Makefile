@@ -16,7 +16,7 @@ ENVIRONMENTS_API := repos/$(REPO)/environments
 TF_INFRA = cd infra && set -a && . ../.env && set +a && AWS_PROFILE=$(PROFILE) terraform
 
 .PHONY: help check-env check-prerequisites check state-backend init plan-cicd apply-cicd plan-inference apply-inference \
-	destroy-inference set-production-run github-setup test test-docker
+	destroy-inference plan-monitoring apply-monitoring destroy-monitoring set-production-run github-setup test test-docker
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | column -t -s "$$(printf '\t')"
@@ -57,6 +57,17 @@ plan-inference: check-env ## Revisa la EC2 y su red
 # Muestra el plan y aplica solo si respondes "yes". La EC2 empieza a cobrar desde aquí.
 apply-inference: check-env ## Levanta la EC2 y su red. Desde aquí cobra
 	$(TF_INFRA) apply -target=module.inference_service
+
+plan-monitoring: check-env ## Revisa alarmas, latido, Lambda semanal y dashboard
+	$(TF_INFRA) plan -target=module.monitoring
+
+# Necesita la EC2 arriba (make apply-inference). AWS manda un correo para confirmar la suscripción a las alarmas.
+apply-monitoring: check-env ## Levanta alarmas, latido, Lambda semanal y dashboard
+	$(TF_INFRA) apply -target=module.monitoring
+
+# Antes de apagar la inferencia: el monitoreo depende de la EC2.
+destroy-monitoring: check-env ## Borra el monitoreo. Pide confirmación
+	$(TF_INFRA) destroy -target=module.monitoring
 
 destroy-inference: check-env ## Apaga la inferencia y borra la imagen de ECR y los logs. No pide confirmación
 	@test -f shut_down_inference_infra.sh || { echo "Falta shut_down_inference_infra.sh: es local y no se versiona." >&2; exit 1; }
