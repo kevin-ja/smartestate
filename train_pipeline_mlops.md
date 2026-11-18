@@ -65,7 +65,8 @@ aws s3api get-object --bucket smartestate-lake-<cuenta> --key raw/ingest_date=<f
 T2 registra en MLflow los hiperparámetros del K-means (`kmeans_k_min`, `kmeans_k_max`, `kmeans_seed`,
 `kmeans_n_init` y, desde 2026-11-11, `pca_variances`; como métricas, la varianza y los componentes del PCA
 ganadores de cada sector: `pca_variance_sector_<s>`, `pca_components_sector_<s>`) desde `modeling.hyperparameters()`. Antes vivían solo en el código: dos corridas no mostraban
-por qué sus clusters difieren. Se confirma en la próxima corrida.
+por qué sus clusters difieren. `pca_variances` y las métricas del PCA (2026-11-11) no tienen confirmación registrada en
+una corrida.
 
 ## Criterio 4 · Reproducibilidad
 
@@ -80,6 +81,15 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 **Prueba:** dos corridas sobre los mismos datos → mismo `cluster_id` y mismos vectores, comparando sus tablas
 `spots_fs_online_<run_id>` en DynamoDB.
 
+## Criterio 5 · Orquestación del pipeline
+
+**Estado actual:** cumplido, con límites. El job `smartestate_train` (Databricks Jobs, `bundles/data/resources/data_pipeline_job.yml`) encadena 5 tasks: `unit_tests` → `data_pipeline` (T1) → `modeling` (T2) → `validate_fs` → `materialization` (T3). Si una falla, las siguientes no corren, llega un correo y se puede relanzar desde la que falló (repair run).
+
+| Límite | Por qué |
+|---|---|
+| Disparo manual (workflow Training), sin calendario | El workspace se destruye cada sesión |
+| Solo se despliega el target `dev`; `prod` existe en el bundle sin usarse | Un solo entorno en este proyecto |
+
 ## Criterio 6 · Evaluación del modelo
 
 **Estado actual (2026-11-11): probado.** Corrida A `998489633886953` sin champion → gana (0,2492). Corrida B `899127213861803`, mismos datos → el champion medido sobre sus candidatos da 0,2492, idéntico al suyo: no supera el margen y no se promueve. Código: `src/ml_pipeline/evaluation.py` y `modeling.score_models`; T2 lo corre en la etapa `evaluate` y escribe `runs/<run_id>/metrics.json`.
@@ -92,6 +102,10 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 | Si no gana: se registran sus métricas y **no se promueve**. La corrida no falla | El K-means es secundario (`new_arch.md`): perder no es un error |
 | Sin champion previo: la corrida gana | Primera corrida |
 
+**Alcance:** la puerta solo evalúa el K-means. El re-ranker, que decide el orden de las recomendaciones, no tiene puerta:
+su Recall@10 y NDCG@10 contra el benchmark (`runs/<run_id>/benchmark_scores.csv`, `monitor.md`) solo se registran. El
+golden set de `HANDOFF.md` §4.1 no se implementó.
+
 ## Criterio 7 · Registro de modelos
 
 **Estado actual (2026-11-11): probado.** A creó `runs/champion.json` → `998489633886953` y el tag `champion=true`; B no lo movió (`promoted_champion` 0). La limpieza conservó la carpeta del champion y la de producción. T3 promueve en la etapa `promote`, después del smoke test y antes de la limpieza (un champion siempre tiene su tabla). La limpieza protege al de `champion.json`.
@@ -102,3 +116,17 @@ por qué sus clusters difieren. Se confirma en la próxima corrida.
 | El champion es un puntero en S3, `runs/champion.json` (como `production.json`). Reemplaza al tag `champion=true` del 2026-10-22, que queda como espejo en MLflow | Mismo motivo: el tag no sobrevive al workspace |
 | Promoción a champion: **automática**, cuando gana según el criterio 6 | Kevin |
 | Pase a producción: **manual** (`make set-production-run`) | Producción también depende de desplegar la inferencia; lo decide Kevin |
+
+## Criterio 8 · Gestión de artefactos
+
+**Estado actual:** cumplido, con un pendiente. Cada corrida guarda sus artefactos en `runs/<run_id>/` del lake (S3):
+modelos del K-means y del PCA, GeoIndex, parámetros del re-ranker, `metrics.json` y `benchmark_scores.csv`. Además,
+su tabla `spots_fs_online_<run_id>` en DynamoDB y su clone del feature store. Los punteros `runs/champion.json` y
+`runs/production.json` dicen qué corrida es cada cosa.
+
+| Decisión | Por qué |
+|---|---|
+| Los artefactos viven en S3, no en MLflow | MLflow se pierde al destruir el workspace; MLflow solo guarda la ruta (`artifacts_uri`) |
+| Limpieza FIFO con `keep_runs: 5` (`config/retention.yml`); nunca se borran producción, champion ni la corrida actual | Acota el costo sin tocar lo que está en uso |
+
+**Pendiente:** los artefactos de T2 no tienen checksum registrado; un archivo reemplazado en S3 no se detecta.

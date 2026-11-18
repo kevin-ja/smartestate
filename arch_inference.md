@@ -8,8 +8,9 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
 ════════════════════════════════════════════════════════════════════════════════
  ETAPA 0 · ARRANQUE DEL CONTENEDOR                              (una vez, EC2)
 ════════════════════════════════════════════════════════════════════════════════
- ENTRA   run_id  (lo pone el CD como variable de entorno: es la corrida de
-                  MLflow con el tag `champion=true`)
+ ENTRA   run_id  (lo pone el CD como variable de entorno: es el de
+                  runs/production.json en S3. Champion y producción son
+                  distintos: el pase a producción es manual)
  CÓMO    1. Lee de S3  runs/<run_id>/geo_index.joblib      → joblib.load
          2. Lee de S3  runs/<run_id>/reranker_params.json  → w_tab, w_nlp,
                                                              f_bounds, δ
@@ -113,6 +114,7 @@ Hay dos momentos. El arranque pasa una vez, cuando se levanta el contenedor. El 
 │ 8 · RESPONSE                                                                 │
 │ SALE   200 {"run_id": "abc123", "spot_ids": [20365, 10322, ...]}             │
 │        → el front busca esos spot_id en su propia base                       │
+│        Además, una línea JSON en el log por request (monitor.md)             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 

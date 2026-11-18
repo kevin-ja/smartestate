@@ -12,11 +12,11 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 | S3 | Guarda el GeoIndex y los parámetros que la API carga al arrancar |
 | VPC con subnet pública | Da a EC2 su red y su salida a internet |
 | VPC gateway endpoints | Conectan EC2 con DynamoDB y S3 sin pasar por internet |
-| Security group | Deja entrar a la API solo a las IP autorizadas |
+| Security group | Deja entrar a la API a las IP autorizadas y a los rangos de Route 53 del latido (todo el puerto, no solo `/health`) |
 | Elastic IP | Da a la API una dirección pública fija |
 | IAM instance profile | Da a EC2 permisos de AWS sin guardar llaves en la imagen |
 | SSM Session Manager | Permite entrar a administrar EC2 sin abrir el puerto 22 |
-| CloudWatch Logs | Guarda los logs de la API |
+| CloudWatch Logs | Guarda los logs de la API, con una línea JSON por request que usa el monitoreo (`monitor.md`) |
 
 ## Decisiones
 
@@ -35,7 +35,7 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
   | Terraform | Aprovisiona la infraestructura |
   | Backend S3 de Terraform | Guarda el estado fuera de la laptop |
 - **Identidad OIDC con ID (Kevin, 2026-11-05):** el repo usa `use_immutable_subject`, así que GitHub envía `repo:dueño@id/nombre@id`. Los roles confían en ese formato: un repo recreado con el mismo nombre no heredaría el acceso.
-- **Despliegue automático (Kevin, 2026-11-05):** push a `main` → tests unitarios y de integración → si todos pasan, se despliega y se revisa `/health`. Si alguno falla, no se despliega y se avisa.
+- **Despliegue automático (Kevin, 2026-11-05):** push a `main` → tests unitarios y de integración → si todos pasan, se despliega y se revisa `/health` y que `/version` muestre el `run_id` esperado. Si alguno falla, no se despliega y se avisa.
 - **`run_id` en producción (Kevin, 2026-11-05):** vive en un archivo de un bucket S3 privado, porque MLflow se apaga con el workspace. El CD usa ese valor por defecto y lo actualiza tras cada despliegue exitoso. Para un rollback, se indica otro `run_id` al lanzar el workflow. La limpieza de T3 debe respetar ese `run_id`.
 - **Confidencialidad del CI/CD (Kevin, 2026-11-05):** el repo es público, así que los logs solo muestran el resumen del plan. El plan completo, el estado de Terraform y lo de Ansible van en buckets S3 privados y separados.
 - **Fuentes de cambio del CI/CD (Kevin, 2026-11-05):** dos.
@@ -77,9 +77,11 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 
 ## Pendientes
 
-1. **Champion:** falta la regla para elegir qué corrida nueva pasa a producción.
-2. **EC2:** falta definir cómo se recupera si se cae la máquina. Si solo se cae el contenedor, lo levanta `--restart always`.
-3. **Latencia: cerrada (2026-11-07).** Medida con la prueba de carga (`tests/performance/`) sobre el tiempo del servidor (`Server-Timing`), sin la red: p50 24 ms y p95 290 ms con 1 usuario; p95 470 ms con 20, el máximo dentro del SLO. Detalle: `docs/performance_report.md`.
+1. **Champion: cerrado (2026-11-11).** El entrenamiento promueve solo al champion (`runs/champion.json`). El pase a producción es manual: `make set-production-run` o el workflow Inference con el `run_id`. La API carga el de `runs/production.json`. Detalle: `train_pipeline_mlops.md`, criterios 6 y 7.
+2. **EC2:** falta definir cómo se recupera si se cae la máquina. La alarma de estado (`monitor.md`) solo avisa por correo. Si solo se cae el contenedor, lo levanta `--restart always`.
+3. **Acceso desde cualquier IP:** el 2026-11-11 se dijo que la API debería poder llamarse desde cualquier IP. No está hecho: el security group sigue limitado a las IP de `.env`.
+4. **Calibración:** los parámetros siguen siendo los iniciales. La auditoría del 2026-11-16 (`HANDOFF.md`) mostró que el re-ranker no pesa bien el área; queda para la versión 2.0.
+5. **Latencia: cerrada (2026-11-07).** Medida con la prueba de carga (`tests/performance/`) sobre el tiempo del servidor (`Server-Timing`), sin la red: p50 24 ms y p95 290 ms con 1 usuario; p95 470 ms con 20, el máximo dentro del SLO. Detalle: `docs/performance_report.md`.
 
 ## Procedimiento
 
@@ -89,8 +91,9 @@ Bitácora de creación e implementación del serving. El flujo por clic está en
 4. ✅ Dockerfile de la imagen (`src/inference/Dockerfile`), construida y subida a ECR.
 5. ✅ Terraform: `infra/modules/inference_service` aplicado (`t3.small`).
 6. ✅ Despliegue con `scripts/deploy.bash` (`756577598248164`, imagen `test`): `/health` y `/recommendations` responden desde afuera.
-7. Medición de latencia dentro de EC2.
-8. CI/CD: código escrito y validado localmente; falta la puesta en marcha y la primera corrida en GitHub.
+7. ✅ Medición de latencia dentro de EC2 (2026-11-07, `docs/performance_report.md`).
+8. ✅ CI/CD en marcha: los caminos de los workflows Inference e Infra probados en verde (2026-11-07).
+9. ✅ Monitoreo desplegado y verificado (2026-11-16, `monitor.md`).
 
 ## Comandos
 
